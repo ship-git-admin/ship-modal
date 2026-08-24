@@ -4,6 +4,34 @@
   var config = window.ShipModalConfig || {};
   var activeModal = null;
   var previousFocus = null;
+  var pendingModals = [];
+
+  function localDateKey() {
+    var date = new Date();
+    var month = String(date.getMonth() + 1);
+    var day = String(date.getDate());
+    return date.getFullYear() + '-' + (month.length < 2 ? '0' + month : month) + '-' + (day.length < 2 ? '0' + day : day);
+  }
+
+  function isWithinSchedule(modal) {
+    if (!modal || modal.dataset.preview === '1') return true;
+    var now = Date.now();
+    var start = parseInt(modal.dataset.scheduleStart || '0', 10);
+    var end = parseInt(modal.dataset.scheduleEnd || '0', 10);
+    return (!start || now >= start) && (!end || now <= end);
+  }
+
+  function setTriggerVisibility(modal, visible) {
+    document.querySelectorAll('[data-ship-modal-target]').forEach(function (trigger) {
+      if (trigger.dataset.shipModalTarget === modal.id) trigger.hidden = !visible;
+    });
+  }
+
+  function setTriggerExpanded(modal, expanded) {
+    document.querySelectorAll('[data-ship-modal-target]').forEach(function (trigger) {
+      if (trigger.dataset.shipModalTarget === modal.id) trigger.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    });
+  }
 
   function storageKey(modal) {
     return 'ship-modal-' + (modal.dataset.postId || modal.id);
@@ -11,13 +39,14 @@
 
   function canShow(modal) {
     if (modal && modal.dataset.preview === '1') return true;
+    if (!isWithinSchedule(modal)) return false;
     var frequency = modal.dataset.frequency || 'session';
     if (frequency === 'always') return true;
     var store = frequency === 'session' ? window.sessionStorage : window.localStorage;
     try {
       var value = store.getItem(storageKey(modal));
       if (!value) return true;
-      if (frequency === 'day') return value !== new Date().toISOString().slice(0, 10);
+      if (frequency === 'day') return value !== localDateKey();
       return false;
     } catch (e) {
       return true;
@@ -30,18 +59,21 @@
     if (frequency === 'always') return;
     var store = frequency === 'session' ? window.sessionStorage : window.localStorage;
     try {
-      store.setItem(storageKey(modal), frequency === 'day' ? new Date().toISOString().slice(0, 10) : '1');
+      store.setItem(storageKey(modal), frequency === 'day' ? localDateKey() : '1');
     } catch (e) { /* storage disabled */ }
+    if (modal.dataset.trigger === 'manual' && !canShow(modal)) setTriggerVisibility(modal, false);
   }
 
   function trackServer(modal, event) {
-    if (!modal || !config.ajaxUrl || !config.nonce) return;
+    if (!modal || !config.ajaxUrl || (!modal.dataset.eventToken && !config.nonce)) return;
     var payload = [
       'action=ship_modal_event',
-      'nonce=' + encodeURIComponent(config.nonce),
+      'token=' + encodeURIComponent(modal.dataset.eventToken || ''),
       'modal_id=' + encodeURIComponent(modal.dataset.postId || ''),
       'event=' + encodeURIComponent(event)
-    ].join('&');
+    ];
+    if (config.nonce) payload.push('nonce=' + encodeURIComponent(config.nonce));
+    payload = payload.join('&');
     if (navigator.sendBeacon) {
       try {
         var beaconBody = window.Blob ? new Blob([payload], { type: 'application/x-www-form-urlencoded;charset=UTF-8' }) : payload;
@@ -60,10 +92,12 @@
         return;
       } catch (e) { /* fall through to XHR */ }
     }
-    var request = new XMLHttpRequest();
-    request.open('POST', config.ajaxUrl, true);
-    request.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8');
-    request.send(payload);
+    try {
+      var request = new XMLHttpRequest();
+      request.open('POST', config.ajaxUrl, true);
+      request.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8');
+      request.send(payload);
+    } catch (e) { /* analytics must never block the UI */ }
   }
 
   function currentPage(modal) {
@@ -89,46 +123,77 @@
       ship_modal_page_count: page.count
     };
     Object.keys(details || {}).forEach(function (key) { payload[key] = details[key]; });
-    window.dataLayer = window.dataLayer || [];
-    window.dataLayer.push(payload);
+    if (!window.dataLayer) window.dataLayer = [];
+    if (typeof window.dataLayer.push !== 'function') return;
+    try {
+      window.dataLayer.push(payload);
+    } catch (e) { /* third-party GTM code must never block the UI */ }
   }
 
   function track(modal, event, details) {
     if (modal && modal.dataset.preview === '1') return;
-    trackServer(modal, event);
+    try { trackServer(modal, event); } catch (e) { /* analytics must never block the UI */ }
     var eventName = event === 'impression' ? 'ship_modal_impression' : event === 'click' ? 'ship_modal_click' : event === 'close' ? 'ship_modal_close' : 'ship_modal_page_view';
     pushDataLayer(modal, eventName, details);
   }
 
   function focusable(modal) {
-    return modal.querySelectorAll('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
+    var candidates = modal.querySelectorAll('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
+    return Array.prototype.filter.call(candidates, function (element) {
+      return !element.closest('[hidden]') && element.getClientRects().length > 0;
+    });
   }
 
   function openModal(modal) {
-    if (!modal || !canShow(modal)) return;
+    if (!modal || modal.classList.contains('is-open') || modal.classList.contains('is-closing') || !canShow(modal)) return;
+    if (activeModal === modal) return;
+    if (activeModal && activeModal !== modal) {
+      if (pendingModals.indexOf(modal) === -1) pendingModals.push(modal);
+      return;
+    }
     previousFocus = document.activeElement;
     activeModal = modal;
     modal.hidden = false;
+    setTriggerExpanded(modal, true);
     document.body.classList.add('ship-modal-open');
-    window.requestAnimationFrame(function () { modal.classList.add('is-open'); });
+    showPage(modal, 0, false);
+    var content = modal.querySelector('.ship-modal__content');
+    if (content) content.scrollTop = 0;
+    window.requestAnimationFrame(function () {
+      if (activeModal !== modal || modal.hidden || modal.classList.contains('is-closing')) return;
+      modal.classList.add('is-open');
+      var close = modal.querySelector('.ship-modal__close');
+      var elements = focusable(modal);
+      var dialog = modal.querySelector('.ship-modal__dialog');
+      if (close) close.focus();
+      else if (elements.length) elements[0].focus();
+      else if (dialog) dialog.focus();
+    });
     markShown(modal);
     track(modal, 'impression');
     if (modal.querySelector('.ship-modal__pages')) track(modal, 'page_view', { ship_modal_action: 'page_view' });
-    var close = modal.querySelector('.ship-modal__close');
-    if (close) close.focus();
   }
 
-  function closeModal(modal) {
-    if (!modal) return;
+  function closeModal(modal, trackClose) {
+    if (!modal || modal.hidden || modal.classList.contains('is-closing')) return;
+    modal.classList.add('is-closing');
     modal.classList.remove('is-open');
-    window.setTimeout(function () { modal.hidden = true; }, 220);
-    document.body.classList.remove('ship-modal-open');
-    track(modal, 'close');
-    if (previousFocus && previousFocus.focus) previousFocus.focus();
-    activeModal = null;
+    setTriggerExpanded(modal, false);
+    if (trackClose !== false) track(modal, 'close');
+    window.setTimeout(function () {
+      modal.hidden = true;
+      modal.classList.remove('is-open');
+      modal.classList.remove('is-closing');
+      if (activeModal === modal) activeModal = null;
+      if (previousFocus && previousFocus.focus && document.documentElement.contains(previousFocus)) previousFocus.focus();
+      previousFocus = null;
+      while (pendingModals.length && !canShow(pendingModals[0])) pendingModals.shift();
+      if (pendingModals.length) openModal(pendingModals.shift());
+      else document.body.classList.remove('ship-modal-open');
+    }, 220);
   }
 
-  function showPage(modal, index) {
+  function showPage(modal, index, trackChange) {
     var container = modal.querySelector('.ship-modal__pages');
     if (!container) return;
     var panels = Array.prototype.slice.call(container.querySelectorAll('[data-ship-modal-page-panel]'));
@@ -152,7 +217,9 @@
     var next = container.querySelector('[data-ship-modal-page-next]');
     if (previous) previous.disabled = nextIndex === 0;
     if (next) next.disabled = nextIndex === panels.length - 1;
-    if (nextIndex !== previousIndex) track(modal, 'page_view', { ship_modal_action: 'page_view' });
+    var status = container.querySelector('[data-ship-modal-page-status]');
+    if (status) status.textContent = (nextIndex + 1) + ' / ' + panels.length + 'ページ';
+    if (trackChange !== false && nextIndex !== previousIndex) track(modal, 'page_view', { ship_modal_action: 'page_view' });
   }
 
   document.addEventListener('click', function (event) {
@@ -183,6 +250,7 @@
   document.addEventListener('click', function (event) {
     var pageButton = event.target.closest('[data-ship-modal-page], [data-ship-modal-page-prev], [data-ship-modal-page-next]');
     if (!pageButton) return;
+    event.preventDefault();
     var modal = pageButton.closest('.ship-modal');
     var container = pageButton.closest('.ship-modal__pages');
     if (!modal || !container) return;
@@ -201,8 +269,11 @@
       closeModal(activeModal);
     }
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      var editingTarget = event.target && event.target.closest ? event.target.closest('input, textarea, select, [contenteditable="true"]') : null;
+      if (editingTarget) return;
       var pages = activeModal.querySelector('.ship-modal__pages');
       if (pages) {
+        event.preventDefault();
         var current = pages.querySelector('.ship-modal__page.is-active');
         var currentIndex = current ? parseInt(current.dataset.shipModalPagePanel, 10) : 0;
         showPage(activeModal, currentIndex + (event.key === 'ArrowRight' ? 1 : -1));
@@ -210,9 +281,19 @@
     }
     if (event.key === 'Tab') {
       var elements = focusable(activeModal);
-      if (!elements.length) return;
+      if (!elements.length) {
+        event.preventDefault();
+        var dialog = activeModal.querySelector('.ship-modal__dialog');
+        if (dialog) dialog.focus();
+        return;
+      }
       var first = elements[0];
       var last = elements[elements.length - 1];
+      if (!activeModal.contains(document.activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+        return;
+      }
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     }
@@ -248,8 +329,25 @@
     document.addEventListener('mouseout', evaluate);
   }
 
-  document.addEventListener('DOMContentLoaded', function () {
-    document.querySelectorAll('.ship-modal').forEach(function (modal) {
+  function runAt(timestamp, callback) {
+    var remaining = timestamp - Date.now();
+    if (remaining <= 0) {
+      callback();
+      return;
+    }
+    window.setTimeout(function () { runAt(timestamp, callback); }, Math.min(remaining, 2147483647));
+  }
+
+  function initializeModal(modal) {
+    if (modal.dataset.shipModalInitialized === '1') return;
+    modal.dataset.shipModalInitialized = '1';
+    setTriggerVisibility(modal, isWithinSchedule(modal) && canShow(modal));
+    var initializeTrigger = function () {
+      if (!canShow(modal)) {
+        setTriggerVisibility(modal, false);
+        return;
+      }
+      setTriggerVisibility(modal, true);
       var trigger = modal.dataset.trigger || 'auto';
       if (trigger === 'auto') {
         var delay = Math.max(0, parseInt(modal.dataset.delay || '0', 10)) * 1000;
@@ -259,6 +357,26 @@
       } else if (trigger === 'exit_intent') {
         bindExitIntentTrigger(modal);
       }
+    };
+    var start = parseInt(modal.dataset.scheduleStart || '0', 10);
+    if (start && start > Date.now()) runAt(start, initializeTrigger);
+    else initializeTrigger();
+    var end = parseInt(modal.dataset.scheduleEnd || '0', 10);
+    if (end && end > Date.now()) {
+      runAt(end + 1, function () {
+        setTriggerVisibility(modal, false);
+        pendingModals = pendingModals.filter(function (pending) { return pending !== modal; });
+        if (activeModal === modal) closeModal(modal, false);
+      });
+    }
+  }
+
+  function initialize() {
+    document.querySelectorAll('.ship-modal').forEach(function (modal) {
+      initializeModal(modal);
     });
-  });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initialize, { once: true });
+  else initialize();
 })();

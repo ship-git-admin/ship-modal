@@ -2,6 +2,8 @@
   'use strict';
 
   var adminConfig = window.ShipModalAdminConfig || {};
+  var targetSearchRequest = null;
+  var targetSearchTimer = null;
 
   function currentScope() {
     return $('input[name="ship_modal_scope"]:checked').val() || 'all';
@@ -88,11 +90,15 @@
     $('<button type="button" class="ship-modal-target-remove" aria-label="選択を解除">×</button>').appendTo($chip);
     $('#ship-modal-target-selected').append($chip);
     updateTargetCount();
-    refreshStatsExportLink();
-    $(document).on('change', '.ship-modal-stats-export-form input[type="date"]', refreshStatsExportLink);
   }
 
   function searchTargets() {
+    window.clearTimeout(targetSearchTimer);
+    targetSearchTimer = null;
+    if (targetSearchRequest) {
+      targetSearchRequest.abort();
+      targetSearchRequest = null;
+    }
     var query = $.trim($('#ship-modal-target-search').val() || '');
     var postType = $('#ship-modal-target-post-type').val() || '';
     if (query.length === 1) {
@@ -104,8 +110,11 @@
       return;
     }
     showTargetMessage(query ? '検索中…' : '最近の公開ページを読み込み中…');
-    $.post(adminConfig.ajaxUrl, { action: 'ship_modal_search_targets', nonce: adminConfig.targetSearchNonce, modal_post_id: adminConfig.postId || '', q: query, post_type: postType })
+    var request = $.post(adminConfig.ajaxUrl, { action: 'ship_modal_search_targets', nonce: adminConfig.targetSearchNonce, modal_post_id: adminConfig.postId || '', q: query, post_type: postType });
+    targetSearchRequest = request;
+    request
       .done(function (response) {
+        if (targetSearchRequest !== request) return;
         var $results = $('#ship-modal-target-results').empty();
         if (!response || !response.success || !response.data || !response.data.length) {
           showTargetMessage(query ? '該当する公開ページがありません。' : '公開ページがありません。');
@@ -121,7 +130,12 @@
           $row.append($button).appendTo($results);
         });
       })
-      .fail(function () { showTargetMessage('検索に失敗しました。もう一度お試しください。'); });
+      .fail(function (xhr, status) {
+        if (status !== 'abort' && targetSearchRequest === request) showTargetMessage('検索に失敗しました。もう一度お試しください。');
+      })
+      .always(function () {
+        if (targetSearchRequest === request) targetSearchRequest = null;
+      });
   }
 
   $(function () {
@@ -136,8 +150,23 @@
       if (currentScope() === 'selected') searchTargets();
     });
     updateTargetCount();
+    refreshStatsExportLink();
+    $(document)
+      .off('change.shipModalStats', '.ship-modal-stats-export-form input[type="date"]')
+      .on('change.shipModalStats', '.ship-modal-stats-export-form input[type="date"]', refreshStatsExportLink);
+    $(document)
+      .off('click.shipModalStatsReset', '.ship-modal-stats-reset-button')
+      .on('click.shipModalStatsReset', '.ship-modal-stats-reset-button', function () {
+        if (!window.confirm('このモーダルの計測データをすべてリセットします。よろしいですか？')) return;
+        var $button = $(this);
+        var $form = $('<form method="post"></form>').attr('action', String($button.data('actionUrl') || ''));
+        $('<input type="hidden" name="action" value="ship_modal_reset_stats">').appendTo($form);
+        $('<input type="hidden" name="post_id">').val(String($button.data('postId') || '')).appendTo($form);
+        $('<input type="hidden" name="_wpnonce">').val(String($button.data('nonce') || '')).appendTo($form);
+        $form.appendTo(document.body);
+        $form.get(0).submit();
+      });
     if (currentScope() === 'selected') searchTargets();
-    var targetSearchTimer;
     $('#ship-modal-target-search').on('input', function () {
       window.clearTimeout(targetSearchTimer);
       targetSearchTimer = window.setTimeout(searchTargets, 250);
@@ -148,8 +177,13 @@
       $(this).prop('disabled', true).text('選択済み');
     });
     $(document).on('click', '.ship-modal-target-remove', function () {
-      $(this).closest('.ship-modal-target-chip').remove();
+      var $chip = $(this).closest('.ship-modal-target-chip');
+      var removedId = String($chip.attr('data-target-id') || '');
+      $chip.remove();
       updateTargetCount();
+      $('#ship-modal-target-results .button').each(function () {
+        if (String($(this).data('targetId')) === removedId) $(this).prop('disabled', false).text('＋追加');
+      });
     });
     $('#ship-modal-target-clear').on('click', function (event) {
       event.preventDefault();
@@ -177,7 +211,9 @@
         var attachment = selected.toJSON();
         if (!attachment.id || !attachment.url) return;
         $('#' + targetId).val(attachment.id).trigger('change');
-        $('#' + previewId).html('<img src="' + attachment.url.replace(/"/g, '&quot;') + '" alt="" style="max-width:100%;height:auto;">');
+        $('#' + previewId).empty().append(
+          $('<img alt="" style="max-width:100%;height:auto;">').attr('src', attachment.url)
+        );
       });
       currentFrame.open();
     }
@@ -196,20 +232,37 @@
       event.preventDefault();
       selectImage($(this).data('target-id'), $(this).data('target-preview'));
     });
+    $(document).on('click', '.ship-modal-page-remove-image', function (event) {
+      event.preventDefault();
+      $('#' + $(this).data('target-id')).val('');
+      $('#' + $(this).data('target-preview')).empty();
+    });
     $(document).on('click', '.ship-modal-remove-page', function (event) {
       event.preventDefault();
       var rows = $('.ship-modal-page-row');
       if (rows.length > 1) {
         $(this).closest('.ship-modal-page-row').remove();
       } else {
-        $(this).closest('.ship-modal-page-row').find('input, textarea').val('');
-        $(this).closest('.ship-modal-page-row').find('.ship-modal-page-preview').empty();
+        var $row = $(this).closest('.ship-modal-page-row');
+        $row.find('input[type="hidden"], input[type="text"], input[type="url"], textarea').val('');
+        $row.find('input[type="checkbox"]').prop('checked', false);
+        $row.find('select').prop('selectedIndex', 0).trigger('change');
+        $row.find('.ship-modal-page-preview').empty();
       }
+      $('.ship-modal-page-row').each(function (index) {
+        $(this).find('.ship-modal-page-row__header strong').first().text('ページ ' + (index + 1));
+      });
     });
     $('#ship-modal-add-page').on('click', function (event) {
       event.preventDefault();
-      var index = $('.ship-modal-page-row').length;
-      var template = $('#ship-modal-page-template').html().replace(/__INDEX__/g, String(index)).replace(/__NUMBER__/g, String(index + 1));
+      var index = -1;
+      $('.ship-modal-page-row').each(function () {
+        var rowIndex = parseInt($(this).attr('data-page-index'), 10);
+        if (!isNaN(rowIndex)) index = Math.max(index, rowIndex);
+      });
+      index++;
+      var pageNumber = $('.ship-modal-page-row').length + 1;
+      var template = $('#ship-modal-page-template').html().replace(/__INDEX__/g, String(index)).replace(/__NUMBER__/g, String(pageNumber));
       $('#ship-modal-pages').append(template);
     });
   });

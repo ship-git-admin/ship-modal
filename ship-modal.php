@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Ship Modal
  * Description: HTML・画像バナー・期間指定・表示頻度・計測に対応したモーダル管理プラグイン。
- * Version: 1.6.5
+ * Version: 1.6.6
  * Requires at least: 4.8
  * Requires PHP: 7.4
  * Author: Ship Inc.
@@ -14,7 +14,7 @@ if (! defined('ABSPATH')) {
     exit;
 }
 
-define('SHIP_MODAL_VERSION', '1.6.5');
+define('SHIP_MODAL_VERSION', '1.6.6');
 define('SHIP_MODAL_FILE', __FILE__);
 define('SHIP_MODAL_DIR', plugin_dir_path(__FILE__));
 define('SHIP_MODAL_URL', plugin_dir_url(__FILE__));
@@ -34,4 +34,9 @@ if (file_exists(SHIP_MODAL_DIR . 'lib/plugin-update-checker/plugin-update-checke
         'ship-modal'
     );
     $ship_modal_update_checker->setBranch('main');
+    // main/masterはPUC既定で古いRelease・tagが優先されるため、
+    // このプラグインでは常にmainブランチのVersionヘッダーを正とする。
+    $ship_modal_update_checker->addFilter('vcs_update_detection_strategies', function ($strategies) {
+        return isset($strategies['branch']) ? array('branch' => $strategies['branch']) : $strategies;
+    });
 }

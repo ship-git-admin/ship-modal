@@ -7,6 +7,9 @@ if (! defined('ABSPATH')) {
 final class Ship_Modal
 {
     private static $instance;
+    private $rendered_modal_ids = array();
+    private $active_modal_ids_cache = null;
+    private $stats_db_error = '';
 
     public static function instance()
     {
@@ -40,6 +43,7 @@ final class Ship_Modal
         add_action('admin_post_ship_modal_preview', array($this, 'preview'));
         add_action('admin_post_ship_modal_export_stats', array($this, 'export_stats'));
         add_action('admin_post_ship_modal_reset_stats', array($this, 'reset_stats'));
+        add_action('before_delete_post', array($this, 'delete_modal_stats'));
     }
 
     public static function activate()
@@ -67,13 +71,24 @@ final class Ship_Modal
 
         $table = $this->stats_table_name();
         $version = get_option('ship_modal_stats_db_version', '');
-        $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
-        if ('1.0' === $version && $exists === $table) {
-            return;
+        if ('1.1' === $version) {
+            if ('1' === get_transient('ship_modal_stats_schema_checked')) {
+                return true;
+            }
+            if ($this->stats_table_is_valid($table)) {
+                set_transient('ship_modal_stats_schema_checked', '1', 12 * HOUR_IN_SECONDS);
+                $this->stats_db_error = '';
+                return true;
+            }
+            delete_option('ship_modal_stats_db_version');
         }
-
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         $charset_collate = $wpdb->get_charset_collate();
+        $table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table)));
+        if ($table_exists === $table && ! $this->repair_stats_secondary_indexes($table, false)) {
+            $this->stats_db_error = '日別集計テーブルの副インデックスを安全に修復できませんでした。';
+            return false;
+        }
         $sql = "CREATE TABLE {$table} (
             modal_id bigint(20) unsigned NOT NULL,
             stat_date date NOT NULL,
@@ -84,7 +99,142 @@ final class Ship_Modal
             KEY stat_date (stat_date)
         ) {$charset_collate};";
         dbDelta($sql);
-        update_option('ship_modal_stats_db_version', '1.0', false);
+        $indexes_repaired = $this->repair_stats_secondary_indexes($table);
+        if ($indexes_repaired && $this->stats_table_is_valid($table) && $this->seed_counter_meta()) {
+            update_option('ship_modal_stats_db_version', '1.1', false);
+            set_transient('ship_modal_stats_schema_checked', '1', 12 * HOUR_IN_SECONDS);
+            $this->stats_db_error = '';
+            return true;
+        } else {
+            delete_option('ship_modal_stats_db_version');
+            delete_transient('ship_modal_stats_schema_checked');
+            $this->stats_db_error = '日別集計テーブルのスキーマを安全に準備できませんでした。';
+            return false;
+        }
+    }
+
+    /**
+     * ON DUPLICATE KEY UPDATEが別イベントへ誤適用されないよう、
+     * プラグイン所有テーブルの副インデックスだけを正規化する。
+     * PRIMARY異常はデータを失う可能性があるため自動変更せず、検証側で停止する。
+     */
+    private function repair_stats_secondary_indexes($table, $add_missing = true)
+    {
+        global $wpdb;
+
+        $rows = $wpdb->get_results("SHOW INDEX FROM {$table}");
+        if (! is_array($rows) || ! empty($wpdb->last_error)) {
+            return false;
+        }
+        $indexes = array();
+        $uniqueness = array();
+        foreach ($rows as $row) {
+            if (! isset($row->Key_name, $row->Column_name, $row->Seq_in_index, $row->Non_unique)) {
+                continue;
+            }
+            $indexes[$row->Key_name][(int) $row->Seq_in_index] = $row->Column_name;
+            $uniqueness[$row->Key_name] = (int) $row->Non_unique;
+        }
+        foreach ($indexes as &$columns) {
+            ksort($columns);
+            $columns = array_values($columns);
+        }
+        unset($columns);
+
+        $required = array(
+            'modal_date' => array('modal_id', 'stat_date'),
+            'stat_date' => array('stat_date'),
+        );
+        foreach ($indexes as $name => $columns) {
+            if ('PRIMARY' === $name) {
+                continue;
+            }
+            $is_required_valid = isset($required[$name]) && $required[$name] === $columns && isset($uniqueness[$name]) && 1 === $uniqueness[$name];
+            $is_unsafe_unique = isset($uniqueness[$name]) && 0 === $uniqueness[$name];
+            if (! $is_required_valid && (isset($required[$name]) || $is_unsafe_unique)) {
+                $index_name = '`' . str_replace('`', '``', $name) . '`';
+                if (false === $wpdb->query("ALTER TABLE {$table} DROP INDEX {$index_name}")) {
+                    return false;
+                }
+                unset($indexes[$name], $uniqueness[$name]);
+            }
+        }
+
+        if (! $add_missing) {
+            return true;
+        }
+        foreach ($required as $name => $columns) {
+            if (isset($indexes[$name]) && $columns === $indexes[$name] && isset($uniqueness[$name]) && 1 === $uniqueness[$name]) {
+                continue;
+            }
+            $definition = 'modal_date' === $name ? 'KEY modal_date (modal_id,stat_date)' : 'KEY stat_date (stat_date)';
+            if (false === $wpdb->query("ALTER TABLE {$table} ADD {$definition}")) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function stats_table_is_valid($table)
+    {
+        global $wpdb;
+
+        $column_rows = $wpdb->get_results("SHOW FULL COLUMNS FROM {$table}");
+        $columns = array();
+        foreach ((array) $column_rows as $column) {
+            if (isset($column->Field)) {
+                $columns[$column->Field] = $column;
+            }
+        }
+        foreach (array('modal_id', 'stat_date', 'event_name', 'event_count') as $required_column) {
+            if (! isset($columns[$required_column]) || 'NO' !== strtoupper((string) $columns[$required_column]->Null)) {
+                return false;
+            }
+        }
+        if (0 !== stripos((string) $columns['modal_id']->Type, 'bigint') || false === stripos((string) $columns['modal_id']->Type, 'unsigned')) {
+            return false;
+        }
+        if ('date' !== strtolower((string) $columns['stat_date']->Type)) {
+            return false;
+        }
+        if (! preg_match('/^varchar\((\d+)\)/i', (string) $columns['event_name']->Type, $event_type) || (int) $event_type[1] < 20) {
+            return false;
+        }
+        if (0 !== stripos((string) $columns['event_count']->Type, 'bigint') || false === stripos((string) $columns['event_count']->Type, 'unsigned') || '0' !== (string) $columns['event_count']->Default) {
+            return false;
+        }
+
+        $index_rows = $wpdb->get_results("SHOW INDEX FROM {$table}");
+        $indexes = array();
+        $index_uniqueness = array();
+        foreach ((array) $index_rows as $index) {
+            if (! isset($index->Key_name, $index->Column_name, $index->Seq_in_index, $index->Non_unique)) {
+                continue;
+            }
+            $indexes[$index->Key_name][(int) $index->Seq_in_index] = $index->Column_name;
+            $index_uniqueness[$index->Key_name] = (int) $index->Non_unique;
+        }
+        foreach ($indexes as &$index_columns) {
+            ksort($index_columns);
+            $index_columns = array_values($index_columns);
+        }
+        unset($index_columns);
+        if (! isset($indexes['PRIMARY'], $indexes['modal_date'], $indexes['stat_date'])) {
+            return false;
+        }
+        if (array('modal_id', 'event_name', 'stat_date') !== $indexes['PRIMARY'] || array('modal_id', 'stat_date') !== $indexes['modal_date'] || array('stat_date') !== $indexes['stat_date']) {
+            return false;
+        }
+        if (0 !== $index_uniqueness['PRIMARY'] || 1 !== $index_uniqueness['modal_date'] || 1 !== $index_uniqueness['stat_date']) {
+            return false;
+        }
+        foreach ($index_uniqueness as $name => $non_unique) {
+            if ('PRIMARY' !== $name && 0 === $non_unique) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function stats_table_name()
@@ -104,11 +254,52 @@ final class Ship_Modal
         );
     }
 
+    private function counter_meta_keys()
+    {
+        return array(
+            'impression' => '_ship_modal_impressions',
+            'click' => '_ship_modal_clicks',
+            'close' => '_ship_modal_closes',
+            'page_view' => '_ship_modal_page_views',
+        );
+    }
+
+    private function ensure_counter_meta($post_id)
+    {
+        foreach ($this->counter_meta_keys() as $counter_key) {
+            if (! metadata_exists('post', $post_id, $counter_key) && ! add_post_meta($post_id, $counter_key, 0, true) && ! metadata_exists('post', $post_id, $counter_key)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function seed_counter_meta()
+    {
+        global $wpdb;
+
+        $post_ids = $wpdb->get_col($wpdb->prepare(
+            "SELECT ID FROM {$wpdb->posts} WHERE post_type = %s",
+            'ship_modal'
+        ));
+        foreach ((array) $post_ids as $post_id) {
+            if (! $this->ensure_counter_meta(absint($post_id))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private function stats_date($value, $fallback)
     {
         $value = is_string($value) ? trim($value) : '';
-        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) && strtotime($value) !== false) {
-            return $value;
+        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $value, $matches)) {
+            $year = (int) $matches[1];
+            $month = (int) $matches[2];
+            $day = (int) $matches[3];
+            if (checkdate($month, $day, $year)) {
+                return $value;
+            }
         }
 
         return $fallback;
@@ -118,7 +309,9 @@ final class Ship_Modal
     {
         global $wpdb;
 
-        $this->maybe_upgrade_stats_table();
+        if (! $this->maybe_upgrade_stats_table()) {
+            return array();
+        }
         $today = current_time('Y-m-d');
         $from = $this->stats_date($from, '');
         $to = $this->stats_date($to, '');
@@ -139,7 +332,24 @@ final class Ship_Modal
         }
 
         $query = "SELECT stat_date, event_name, event_count FROM {$this->stats_table_name()} WHERE {$where} ORDER BY stat_date DESC, event_name ASC";
-        return $wpdb->get_results($wpdb->prepare($query, $params));
+        $prepared_query = $wpdb->prepare($query, $params);
+        $rows = $wpdb->get_results($prepared_query);
+        if ('' === $wpdb->last_error) {
+            return $rows;
+        }
+
+        // テーブルが外部操作などで失われた場合は、その場で一度だけ再作成して読み直す。
+        delete_option('ship_modal_stats_db_version');
+        delete_transient('ship_modal_stats_schema_checked');
+        if (! $this->maybe_upgrade_stats_table()) {
+            return array();
+        }
+        $rows = $wpdb->get_results($prepared_query);
+        if ('' !== $wpdb->last_error || ! is_array($rows)) {
+            $this->stats_db_error = $wpdb->last_error ?: '日別集計テーブルを読み込めませんでした。';
+            return array();
+        }
+        return $rows;
     }
 
     public function register_post_type()
@@ -217,7 +427,7 @@ final class Ship_Modal
     private function is_admin_user()
     {
         $user = wp_get_current_user();
-        return is_super_admin() || ($user && in_array('administrator', (array) $user->roles, true));
+        return is_super_admin() || ($user && in_array('administrator', (array) $user->roles, true) && current_user_can('manage_options'));
     }
 
     public function hide_non_admin_menu()
@@ -250,6 +460,22 @@ final class Ship_Modal
     {
         $value = get_post_meta($post_id, '_ship_modal_' . $key, true);
         return $value === '' ? $default : $value;
+    }
+
+    /**
+     * admin-post.php用のURLを未エスケープのまま組み立てる。
+     *
+     * wp_nonce_url()の返り値はHTMLエスケープ済みなので、リダイレクトや
+     * add_query_arg()の入力へ再利用すると「amp;post_id」のような壊れた
+     * クエリ名になる。HTMLへ出力する箇所でのみesc_url()/esc_attr()する。
+     */
+    private function admin_action_url($action, $post_id, $nonce_action)
+    {
+        return add_query_arg(array(
+            'action' => sanitize_key($action),
+            'post_id' => absint($post_id),
+            '_wpnonce' => wp_create_nonce($nonce_action),
+        ), admin_url('admin-post.php'));
     }
 
     private function sanitize_custom_css($css)
@@ -307,11 +533,14 @@ final class Ship_Modal
     {
         check_ajax_referer('ship_modal_target_search', 'nonce');
         $modal_post_id = isset($_POST['modal_post_id']) ? absint($_POST['modal_post_id']) : 0;
-        if (! current_user_can('manage_options') || ($modal_post_id && ! current_user_can('edit_post', $modal_post_id))) {
+        if (! $this->is_admin_user() || ($modal_post_id && ! current_user_can('edit_post', $modal_post_id))) {
             wp_send_json_error(array('message' => '権限がありません。'), 403);
         }
         $search = isset($_POST['q']) ? sanitize_text_field(wp_unslash($_POST['q'])) : '';
-        if ($search !== '' && mb_strlen($search) < 2) {
+        $search_length = function_exists('mb_strlen')
+            ? mb_strlen($search, 'UTF-8')
+            : preg_match_all('/./us', $search, $unused_matches);
+        if ($search !== '' && $search_length < 2) {
             wp_send_json_success(array());
         }
         $types = $this->targetable_post_types();
@@ -354,6 +583,7 @@ final class Ship_Modal
                     <input type="hidden" name="ship_modal_pages[<?php echo esc_attr($index); ?>][image_id]" id="ship-modal-page-image-<?php echo esc_attr($index); ?>" value="<?php echo esc_attr($image_id); ?>">
                     <div id="ship-modal-page-preview-<?php echo esc_attr($index); ?>" class="ship-modal-page-preview"><?php if ($image_url) : ?><img src="<?php echo esc_url($image_url); ?>" alt=""><?php endif; ?></div>
                     <button type="button" class="button ship-modal-page-select-image" data-target-id="ship-modal-page-image-<?php echo esc_attr($index); ?>" data-target-preview="ship-modal-page-preview-<?php echo esc_attr($index); ?>">画像を選択</button>
+                    <button type="button" class="button ship-modal-page-remove-image" data-target-id="ship-modal-page-image-<?php echo esc_attr($index); ?>" data-target-preview="ship-modal-page-preview-<?php echo esc_attr($index); ?>">画像を解除</button>
                 </div>
                 <div>
                     <label>ページ見出し</label>
@@ -441,6 +671,11 @@ final class Ship_Modal
         $border_radius = min(48, max(0, (int) $this->meta($post->ID, 'border_radius', 0)));
         $padding = min(64, max(0, (int) $this->meta($post->ID, 'padding', 20)));
         $max_width = min(1200, max(280, (int) $this->meta($post->ID, 'max_width', 620)));
+        $preview_url = $this->admin_action_url(
+            'ship_modal_preview',
+            $post->ID,
+            'ship_modal_preview_' . absint($post->ID)
+        );
         ?>
         <p class="description">HTML、画像バナー、画像＋HTML、複数ページのページャーから選べます。ページャーは各ページに画像とHTMLを設定できます。</p>
         <div class="notice notice-info inline ship-modal-admin-guide">
@@ -453,7 +688,7 @@ final class Ship_Modal
             <p><strong>注意：</strong>管理画面のプレビューだけではなく、保存後の公開ページで画像の大きさ・角丸・ボタン・表示タイミングを必ず確認してください。</p>
         </div>
         <?php if ('publish' !== $post->post_status) : ?><div class="notice notice-warning inline ship-modal-status-warning"><p><strong>現在は公開状態ではありません。</strong>このモーダルは公開ページには表示されません。まず下書きとして保存し、確認後に右上の「公開」または「更新」で公開してください。</p></div><?php endif; ?>
-        <?php if ($post->ID) : ?><div class="ship-modal-preview-bar"><input type="hidden" name="ship_modal_preview_post_id" value="<?php echo absint($post->ID); ?>"><?php if ('auto-draft' !== $post->post_status) : ?><a class="button" href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=ship_modal_preview&post_id=' . absint($post->ID)), 'ship_modal_preview_' . absint($post->ID))); ?>" target="_blank" rel="noopener">保存済み内容をプレビュー</a><?php endif; ?><button type="submit" name="ship_modal_preview_after_save" value="1" class="button button-primary">更新してプレビュー</button><span>編集中の内容を保存してから、プレビュー画面を開きます。</span></div><?php endif; ?>
+        <?php if ($post->ID) : ?><div class="ship-modal-preview-bar"><input type="hidden" name="ship_modal_preview_post_id" value="<?php echo absint($post->ID); ?>"><?php if ('auto-draft' !== $post->post_status) : ?><a class="button" href="<?php echo esc_url($preview_url); ?>" target="_blank" rel="noopener">保存済み内容をプレビュー</a><?php endif; ?><button type="submit" name="ship_modal_preview_after_save" value="1" class="button button-primary">更新してプレビュー</button><span>編集中の内容を保存してから、プレビュー画面を開きます。</span></div><?php endif; ?>
         <table class="form-table ship-modal-form-table">
             <tr><th><label for="ship-modal-content_type">フレーム</label></th><td><?php $this->select('content_type', $type, array('html' => '旧：自由HTML', 'image' => '画像のみ', 'hybrid' => '画像＋テキスト（ボタン任意）', 'text' => 'テキスト（ボタン任意）', 'pager' => 'ページャー（複数ページ）')); ?></td></tr>
             <tr class="ship-modal-legacy-html-row"><th><label for="ship-modal-html">HTML</label></th><td><?php wp_editor($html, 'ship_modal_html', array('textarea_name' => 'ship_modal_html', 'textarea_rows' => 10, 'media_buttons' => false, 'teeny' => true)); ?></td></tr>
@@ -471,7 +706,7 @@ final class Ship_Modal
             <tr class="ship-modal-single-image-row"><th><label for="ship-modal-link_url">クリック先URL</label></th><td><input type="url" class="widefat" name="ship_modal_link_url" id="ship-modal-link_url" value="<?php echo esc_attr($link_url); ?>" placeholder="https://example.com/"><br><label><input type="checkbox" name="ship_modal_link_new_tab" value="1" <?php checked($link_new_tab, true); ?>> 別タブで開く</label><p class="description">空欄なら画像はリンクになりません。</p></td></tr>
             <tr class="ship-modal-hybrid-image-row"><th><label for="ship-modal-image_position">画像の位置</label></th><td><?php $this->select('image_position', $image_position, array('top' => '上', 'left' => '左', 'right' => '右')); ?></td></tr>
             <tr class="ship-modal-buttons-row"><th>ボタン</th><td><p class="description">任意・最大3個。文言の改行は&lt;br&gt;で指定できます。長い文言は画面幅に合わせて折り返します。</p><?php $this->render_button_fields($buttons, 3, 'ship_modal_buttons'); ?></td></tr>
-            <tr class="ship-modal-pages-row"><th>ページ</th><td><div id="ship-modal-pages"><?php foreach ($pages as $index => $page) { $this->render_page_row($index, is_array($page) ? $page : array()); } ?></div><p><button type="button" class="button" id="ship-modal-add-page">＋ ページを追加</button></p><p class="description">各ページは画像とHTMLを個別に設定できます。</p></td></tr>
+            <tr class="ship-modal-pages-row"><th>ページ</th><td><div id="ship-modal-pages"><?php foreach ($pages as $index => $page) { $this->render_page_row($index, is_array($page) ? $page : array()); } ?></div><p><button type="button" class="button" id="ship-modal-add-page">＋ ページを追加</button></p><p class="description">各ページに画像・見出し・本文・ボタンを個別に設定できます。画像だけのページも作成できます。</p></td></tr>
             <tr><th><label for="ship-modal-design">表示レイアウト</label></th><td><?php $this->select('design', $design, array('center' => '中央カード', 'bottom' => '画面下部バナー', 'side' => '右下ポップアップ', 'fullscreen' => 'フルスクリーン')); ?><p class="description">モーダル全体の表示位置・形状を選択します。内容の形式は上の「フレーム」で設定します。</p></td></tr>
             <tr><th><label for="ship-modal-border_radius">角丸（border-radius）</label></th><td><input type="number" min="0" max="48" step="1" class="small-text" name="ship_modal_border_radius" id="ship-modal-border_radius" value="<?php echo esc_attr($border_radius); ?>"> px <p class="description">0〜48px。0なら角丸なし。</p></td></tr>
             <tr><th><label for="ship-modal-padding">内側の余白（padding）</label></th><td><input type="number" min="0" max="64" step="1" class="small-text" name="ship_modal_padding" id="ship-modal-padding" value="<?php echo esc_attr($padding); ?>"> px <p class="description">0〜64px。画像のみフレームは画像をコンテナいっぱいに表示します。</p></td></tr>
@@ -556,7 +791,7 @@ final class Ship_Modal
                 </div>
                 <p class="description">背景は白固定です。右側のカラーパレットが実際に反映される色です。メインカラーはリンク・主ボタン・閉じるボタンに、文字色は本文・見出し・サブボタンに反映されます。保存後に公開ページで確認してください。</p>
             </td></tr>
-            <tr><th>閉じる操作</th><td><input type="hidden" name="ship_modal_show_close" value="0"><label><input type="checkbox" name="ship_modal_show_close" value="1" <?php checked($show_close, '1'); ?>> 閉じるボタンを表示</label><br><input type="hidden" name="ship_modal_close_overlay" value="0"><label><input type="checkbox" name="ship_modal_close_overlay" value="1" <?php checked($close_overlay, '1'); ?>> 背景クリックで閉じる</label><br><input type="hidden" name="ship_modal_show_backdrop" value="0"><label><input type="checkbox" name="ship_modal_show_backdrop" value="1" <?php checked($show_backdrop, '1'); ?>> 背景を暗くする</label><p class="description">「背景を暗くする」を外すと、背後のページを暗転させずに表示します。チェックを外した場合も確実にOFFとして保存されます。</p></td></tr>
+            <tr><th>閉じる操作</th><td><input type="hidden" name="ship_modal_show_close" value="0"><label><input type="checkbox" name="ship_modal_show_close" value="1" <?php checked($show_close, '1'); ?>> 閉じるボタンを表示</label><br><input type="hidden" name="ship_modal_close_overlay" value="0"><label><input type="checkbox" name="ship_modal_close_overlay" value="1" <?php checked($close_overlay, '1'); ?>> 背景クリックで閉じる</label><br><input type="hidden" name="ship_modal_show_backdrop" value="0"><label><input type="checkbox" name="ship_modal_show_backdrop" value="1" <?php checked($show_backdrop, '1'); ?>> 背景を暗くする</label><p class="description">「背景を暗くする」を外すと、背後のページを暗転させずに表示します。閉じる手段がなくなる設定は安全のため保存せず、両方を外した場合は閉じるボタンを自動で有効にします。</p></td></tr>
         </table>
         <p class="description">ショートコード例：<code>[ship_modal id="<?php echo esc_attr($post->ID); ?>"]</code></p>
         <?php
@@ -582,6 +817,12 @@ final class Ship_Modal
                 $daily[$row->stat_date][$row->event_name] = (int) $row->event_count;
             }
         }
+        if ($this->stats_db_error !== '') {
+            echo '<div class="notice notice-error inline"><p><strong>日別集計を読み込めませんでした。</strong> データベースを確認してから再読み込みしてください。CSV出力はエラー解消まで停止します。</p></div>';
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('Ship Modal stats error: ' . $this->stats_db_error); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+            }
+        }
 
         echo '<div class="ship-modal-stats-summary">';
         echo '<p><strong>表示回数：</strong> ' . number_format_i18n($impressions) . '</p>';
@@ -590,7 +831,7 @@ final class Ship_Modal
         echo '<p><strong>閉じる回数：</strong> ' . number_format_i18n($closes) . '</p>';
         echo '<p><strong>ページャー閲覧数：</strong> ' . number_format_i18n($page_views) . '</p>';
         echo '</div>';
-        echo '<p class="description">ページャー閲覧数はページャーのページ表示・切り替えを記録します。画像＋HTMLなどページャーを使わないフレームでは0のままです。表示・クリック・閉じる・ページャー閲覧はGTM/GA4向けdataLayerにも送信します。</p>';
+        echo '<p class="description">ページャー閲覧数はページャーのページ表示・切り替えを記録します。画像＋HTMLなどページャーを使わないフレームでは0のままです。表示・クリック・閉じる・ページャー閲覧はGTM/GA4向けdataLayerにも送信します。日別集計の導入前から累計がある場合、全期間CSVには「日別導入前」として差分を補完します。</p>';
 
         echo '<h4 class="ship-modal-stats-heading">直近14日の日別集計</h4>';
         if ($daily) {
@@ -606,21 +847,16 @@ final class Ship_Modal
 
         echo '<details class="ship-modal-stats-tools"><summary>CSV出力・計測リセット</summary>';
         echo '<p class="description">期間を指定して、日別の表示・クリック・閉じる・ページャー閲覧をCSVでダウンロードできます。</p>';
-        $export_base_url = wp_nonce_url(
-            add_query_arg(array('action' => 'ship_modal_export_stats', 'post_id' => absint($post->ID)), admin_url('admin-post.php')),
-            'ship_modal_export_stats_' . absint($post->ID),
-            '_wpnonce'
+        $export_base_url = $this->admin_action_url(
+            'ship_modal_export_stats',
+            $post->ID,
+            'ship_modal_export_stats_' . absint($post->ID)
         );
         $export_all_url = $export_base_url;
         $export_recent_url = add_query_arg(array('from' => $recent_from, 'to' => $today), $export_base_url);
-        $reset_url = wp_nonce_url(
-            add_query_arg(array('action' => 'ship_modal_reset_stats', 'post_id' => absint($post->ID)), admin_url('admin-post.php')),
-            'ship_modal_reset_stats_' . absint($post->ID),
-            '_wpnonce'
-        );
-        // 投稿編集画面全体がformで囲まれているため、ここでは入れ子formを使わずリンクで送信する。
+        // 投稿編集画面全体がformで囲まれているため、リセットはJSで独立したPOST formを生成する。
         echo '<div class="ship-modal-stats-export-form"><label>開始 <input type="date" id="ship-modal-stats-from-' . absint($post->ID) . '" value="' . esc_attr($recent_from) . '"></label> <label>終了 <input type="date" id="ship-modal-stats-to-' . absint($post->ID) . '" value="' . esc_attr($today) . '"></label> <a class="button ship-modal-stats-export-link" data-base-url="' . esc_attr($export_base_url) . '" data-from-id="ship-modal-stats-from-' . absint($post->ID) . '" data-to-id="ship-modal-stats-to-' . absint($post->ID) . '" href="' . esc_url($export_recent_url) . '" target="_blank" rel="noopener">CSVをダウンロード</a> <a class="button" href="' . esc_url($export_all_url) . '" target="_blank" rel="noopener">全期間CSV</a></div>';
-        echo '<div class="ship-modal-stats-reset-form"><a class="button" href="' . esc_url($reset_url) . '" onclick="return window.confirm(\'このモーダルの計測データをすべてリセットします。よろしいですか？\');">計測をリセット</a><span class="description">全期間の集計と日別データを削除します。</span></div></details>';
+        echo '<div class="ship-modal-stats-reset-form"><button type="button" class="button ship-modal-stats-reset-button" data-action-url="' . esc_attr(admin_url('admin-post.php')) . '" data-post-id="' . absint($post->ID) . '" data-nonce="' . esc_attr(wp_create_nonce('ship_modal_reset_stats_' . absint($post->ID))) . '">計測をリセット</button><span class="description">全期間の集計と日別データを削除します。</span></div></details>';
     }
 
     private function normalize_buttons($raw_buttons, $max, $context, &$errors)
@@ -670,6 +906,10 @@ final class Ship_Modal
         $show_close = ! empty($_POST['ship_modal_show_close']) ? '1' : '0';
         $close_overlay = ! empty($_POST['ship_modal_close_overlay']) ? '1' : '0';
         $show_backdrop = ! empty($_POST['ship_modal_show_backdrop']) ? '1' : '0';
+        // タッチ端末でも必ず閉じられるよう、閉じる手段の全OFFは許可しない。
+        if ('0' === $show_close && '0' === $close_overlay) {
+            $show_close = '1';
+        }
         update_post_meta($post_id, '_ship_modal_show_close', $show_close);
         update_post_meta($post_id, '_ship_modal_close_overlay', $close_overlay);
         update_post_meta($post_id, '_ship_modal_show_backdrop', $show_backdrop);
@@ -716,7 +956,7 @@ final class Ship_Modal
                 $page_heading = isset($page['heading']) ? sanitize_text_field($page['heading']) : '';
                 $page_body = isset($page['body']) ? wp_kses($page['body'], array('strong' => array(), 'br' => array(), 'a' => array('href' => true, 'target' => true, 'rel' => true))) : '';
                 $page_buttons = $this->normalize_buttons(isset($page['buttons']) ? $page['buttons'] : array(), 2, 'ページ' . ((int) $index + 1) . 'のボタン', $errors);
-                $has_page_content = $page_heading !== '' || trim(wp_strip_all_tags($page_body)) !== '' || ! empty($page['image_id']);
+                $has_page_content = $page_heading !== '' || trim(wp_strip_all_tags($page_body)) !== '' || ! empty($page['image_id']) || ! empty($page_buttons);
                 if (! $has_page_content) {
                     continue;
                 }
@@ -804,6 +1044,7 @@ final class Ship_Modal
             $value = isset($_POST['ship_modal_' . $field]) ? sanitize_key(wp_unslash($_POST['ship_modal_' . $field])) : '';
             update_post_meta($post_id, '_ship_modal_' . $field, in_array($value, $values, true) ? $value : reset($values));
         }
+        $this->ensure_counter_meta($post_id);
     }
 
     public function render_validation_notice()
@@ -890,8 +1131,9 @@ final class Ship_Modal
         if ('ship_modal' !== get_post_type($post_id) || ! $this->user_can_preview($post_id)) {
             return $location;
         }
-        return wp_nonce_url(
-            admin_url('admin-post.php?action=ship_modal_preview&post_id=' . absint($post_id)),
+        return $this->admin_action_url(
+            'ship_modal_preview',
+            $post_id,
             'ship_modal_preview_' . absint($post_id)
         );
     }
@@ -926,7 +1168,7 @@ final class Ship_Modal
         // 公開ページと同じテーマCSSを読み込み、プレビューだけ見た目が変わらないようにする。
         // wp_head() はテーマ固有の副作用（タイトルや外部スクリプトなど）も出力するため、
         // enqueue処理とスタイル出力だけを実行する。
-        wp_enqueue_style('ship-modal-preview', SHIP_MODAL_URL . 'assets/css/modal.css', array(), SHIP_MODAL_VERSION);
+        wp_enqueue_style('ship-modal', SHIP_MODAL_URL . 'assets/css/modal.css', array(), SHIP_MODAL_VERSION);
         do_action('wp_enqueue_scripts');
         ?><!doctype html><html <?php language_attributes(); ?>><head><meta charset="<?php bloginfo('charset'); ?>"><meta name="viewport" content="width=device-width, initial-scale=1"><title><?php echo esc_html('モーダルプレビュー：' . get_the_title($post_id)); ?></title><?php wp_print_styles(); ?></head><body <?php body_class('ship-modal-preview-page'); ?>><?php echo $modal; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?><script src="<?php echo esc_url($js_url); ?>"></script></body></html><?php
         exit;
@@ -934,21 +1176,53 @@ final class Ship_Modal
 
     private function user_can_preview($post_id)
     {
-        return $this->is_admin_user();
+        return $this->is_admin_user() && current_user_can('edit_post', absint($post_id));
     }
 
     private function is_in_schedule($post_id)
     {
-        $now = current_time('timestamp');
-        $start = $this->meta($post_id, 'start_at');
-        $end = $this->meta($post_id, 'end_at');
-        if ($start && strtotime($start) > $now) {
+        $now = time();
+        $start = $this->schedule_timestamp($this->meta($post_id, 'start_at'));
+        $end = $this->schedule_timestamp($this->meta($post_id, 'end_at'));
+        if ($start && $start > $now) {
             return false;
         }
-        if ($end && strtotime($end) < $now) {
+        if ($end && $end < $now) {
             return false;
         }
         return true;
+    }
+
+    private function is_schedule_expired($post_id)
+    {
+        $end = $this->schedule_timestamp($this->meta($post_id, 'end_at'));
+        return $end && $end < time();
+    }
+
+    private function schedule_timestamp($value)
+    {
+        $value = is_string($value) ? trim($value) : '';
+        if (! preg_match('/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/', $value, $matches)) {
+            return 0;
+        }
+        if (! checkdate((int) $matches[2], (int) $matches[3], (int) $matches[1])) {
+            return 0;
+        }
+        if ((int) $matches[4] > 23 || (int) $matches[5] > 59 || (isset($matches[6]) && (int) $matches[6] > 59)) {
+            return 0;
+        }
+        // WP4.8の手動gmt_offset設定でも正しく変換されるよう秒まで補完する。
+        $local_datetime = sprintf(
+            '%04d-%02d-%02d %02d:%02d:%02d',
+            (int) $matches[1],
+            (int) $matches[2],
+            (int) $matches[3],
+            (int) $matches[4],
+            (int) $matches[5],
+            isset($matches[6]) ? (int) $matches[6] : 0
+        );
+        $gmt_timestamp = get_gmt_from_date($local_datetime, 'U');
+        return is_numeric($gmt_timestamp) ? (int) $gmt_timestamp : 0;
     }
 
     private function is_scope_visible($post_id)
@@ -972,6 +1246,9 @@ final class Ship_Modal
 
     private function active_modal_ids()
     {
+        if (is_array($this->active_modal_ids_cache)) {
+            return $this->active_modal_ids_cache;
+        }
         $query = new WP_Query(array(
             'post_type' => 'ship_modal',
             'post_status' => 'publish',
@@ -981,30 +1258,39 @@ final class Ship_Modal
             'orderby' => 'menu_order date',
             'order' => 'DESC',
         ));
-        $ids = array();
-        foreach ($query->posts as $post_id) {
-            if ($this->is_in_schedule($post_id)) {
-                $ids[] = $post_id;
-            }
-        }
-        return $ids;
+        // 開始前のモーダルもDOMへ出し、ページを開いたまま開始時刻を迎えた場合は
+        // フロントJSで安全に起動する。終了済みかどうかはrender_modal()で除外する。
+        $this->active_modal_ids_cache = array_map('absint', $query->posts);
+        return $this->active_modal_ids_cache;
     }
 
     public function enqueue_front_assets()
     {
+        // ショートコードがthe_content以外（テンプレート・ウィジェット等）から
+        // 呼ばれてもCSSがwp_head後の遅延読込にならないよう、スタイルは先に登録する。
+        wp_enqueue_style('ship-modal', SHIP_MODAL_URL . 'assets/css/modal.css', array(), SHIP_MODAL_VERSION);
         $has_sitewide = false;
         foreach ($this->active_modal_ids() as $post_id) {
-            if ($this->is_scope_visible($post_id)) {
+            if ($this->is_scope_visible($post_id) && ! $this->is_schedule_expired($post_id)) {
                 $has_sitewide = true;
                 break;
             }
         }
-        if (! $has_sitewide) {
+        $has_content_shortcode = false;
+        if (is_singular()) {
+            $queried_post = get_post(get_queried_object_id());
+            $has_content_shortcode = $queried_post && has_shortcode($queried_post->post_content, 'ship_modal');
+        }
+        if (! $has_sitewide && ! $has_content_shortcode) {
             return;
         }
-        wp_enqueue_style('ship-modal', SHIP_MODAL_URL . 'assets/css/modal.css', array(), SHIP_MODAL_VERSION);
         wp_enqueue_script('ship-modal', SHIP_MODAL_URL . 'assets/js/modal.js', array(), SHIP_MODAL_VERSION, true);
-        wp_localize_script('ship-modal', 'ShipModalConfig', array('ajaxUrl' => admin_url('admin-ajax.php'), 'nonce' => wp_create_nonce('ship_modal_event')));
+        wp_localize_script('ship-modal', 'ShipModalConfig', array('ajaxUrl' => admin_url('admin-ajax.php')));
+    }
+
+    private function event_token($post_id)
+    {
+        return hash_hmac('sha256', (string) absint($post_id), wp_salt('nonce'));
     }
 
     private function render_image_content($image_id, $link_url, $alt, $new_tab = false)
@@ -1031,7 +1317,7 @@ final class Ship_Modal
         $markup = '';
         $button_count = 0;
         foreach ($buttons as $button) {
-            if (! is_array($button) || empty($button['label'])) {
+            if (! is_array($button) || ! isset($button['label']) || trim(wp_strip_all_tags((string) $button['label'])) === '') {
                 continue;
             }
             $action = isset($button['action']) && 'close' === $button['action'] ? 'close' : 'link';
@@ -1079,7 +1365,7 @@ final class Ship_Modal
         $heading = isset($page['heading']) ? $page['heading'] : '';
         $body = isset($page['body']) ? $page['body'] : (isset($page['html']) ? wp_strip_all_tags($page['html']) : '');
         $buttons = isset($page['buttons']) ? $page['buttons'] : array();
-        $copy = ($heading ? '<h3>' . esc_html($heading) . '</h3>' : '') . ($body ? '<p>' . wp_kses($body, array('strong' => array(), 'br' => array(), 'a' => array('href' => true, 'target' => true, 'rel' => true))) . '</p>' : '') . $this->render_button_markup($buttons);
+        $copy = ($heading !== '' ? '<h3>' . esc_html($heading) . '</h3>' : '') . ($body !== '' ? '<p>' . wp_kses($body, array('strong' => array(), 'br' => array(), 'a' => array('href' => true, 'target' => true, 'rel' => true))) . '</p>' : '') . $this->render_button_markup($buttons);
         $markup = $image ? '<div class="ship-modal__page-media">' . $image . '</div>' : '';
         if ($copy !== '') {
             $markup .= '<div class="ship-modal__page-html">' . $copy . '</div>';
@@ -1089,7 +1375,11 @@ final class Ship_Modal
 
     private function render_modal($post_id, $shortcode = false, $preview = false)
     {
-        if (! $preview && ! $this->is_in_schedule($post_id)) {
+        $post_id = absint($post_id);
+        if (! $post_id || (! $preview && isset($this->rendered_modal_ids[$post_id]))) {
+            return '';
+        }
+        if (! $preview && $this->is_schedule_expired($post_id)) {
             return '';
         }
         $type = $this->meta($post_id, 'content_type', 'html');
@@ -1106,6 +1396,11 @@ final class Ship_Modal
         $show_close = '1' === $this->meta($post_id, 'show_close', '1');
         $close_overlay = '1' === $this->meta($post_id, 'close_overlay', '1');
         $show_backdrop = '1' === $this->meta($post_id, 'show_backdrop', '1');
+        if (! $show_close && ! $close_overlay) {
+            $show_close = true;
+        }
+        $schedule_start = $this->schedule_timestamp($this->meta($post_id, 'start_at'));
+        $schedule_end = $this->schedule_timestamp($this->meta($post_id, 'end_at'));
         $title = get_the_title($post_id);
         $image_position = $this->meta($post_id, 'image_position', 'top');
         $heading = $this->meta($post_id, 'heading');
@@ -1131,11 +1426,20 @@ final class Ship_Modal
         } elseif ('hybrid' === $type) {
             $image = $this->render_image_content($this->meta($post_id, 'image_id'), $this->meta($post_id, 'link_url'), $title, '1' === $this->meta($post_id, 'link_new_tab', '0'));
             $body = $body !== '' ? $body : wp_strip_all_tags($this->meta($post_id, 'html'));
-            $copy = ($heading ? '<h2>' . esc_html($heading) . '</h2>' : '') . ($body ? '<p>' . wp_kses($body, array('strong' => array(), 'br' => array(), 'a' => array('href' => true, 'target' => true, 'rel' => true))) . '</p>' : '') . $this->render_button_markup($buttons);
-            $content = '<div class="ship-modal__hybrid ship-modal__hybrid--' . esc_attr($image_position) . '"><div class="ship-modal__hybrid-media">' . $image . '</div><div class="ship-modal__hybrid-html">' . $copy . '</div></div>';
+            $copy = ($heading !== '' ? '<h2>' . esc_html($heading) . '</h2>' : '') . ($body !== '' ? '<p>' . wp_kses($body, array('strong' => array(), 'br' => array(), 'a' => array('href' => true, 'target' => true, 'rel' => true))) . '</p>' : '') . $this->render_button_markup($buttons);
+            if ($image !== '' && $copy !== '') {
+                $content = '<div class="ship-modal__hybrid ship-modal__hybrid--' . esc_attr($image_position) . '"><div class="ship-modal__hybrid-media">' . $image . '</div><div class="ship-modal__hybrid-html">' . $copy . '</div></div>';
+            } elseif ($image !== '') {
+                $content = $image;
+                $content_class = ' ship-modal__content--flush';
+            } elseif ($copy !== '') {
+                $content = '<div class="ship-modal__text">' . $copy . '</div>';
+            }
         } elseif ('text' === $type) {
-            $copy = ($heading ? '<h2>' . esc_html($heading) . '</h2>' : '') . ($body ? '<p>' . wp_kses($body, array('strong' => array(), 'br' => array(), 'a' => array('href' => true, 'target' => true, 'rel' => true))) . '</p>' : '') . $this->render_button_markup($buttons);
-            $content = '<div class="ship-modal__text">' . $copy . '</div>';
+            $copy = ($heading !== '' ? '<h2>' . esc_html($heading) . '</h2>' : '') . ($body !== '' ? '<p>' . wp_kses($body, array('strong' => array(), 'br' => array(), 'a' => array('href' => true, 'target' => true, 'rel' => true))) . '</p>' : '') . $this->render_button_markup($buttons);
+            if ($copy !== '') {
+                $content = '<div class="ship-modal__text">' . $copy . '</div>';
+            }
         } elseif ('pager' === $type) {
             $pages = $this->meta($post_id, 'pages', array());
             if (is_array($pages)) {
@@ -1150,25 +1454,29 @@ final class Ship_Modal
             if ($pages) {
                 $page_markup = '';
                 $pager_has_copy = false;
+                $page_count = count($pages);
                 foreach ($pages as $index => $page) {
                     if ($this->page_has_copy($page)) {
                         $pager_has_copy = true;
                     }
-                    $page_markup .= '<section class="ship-modal__page' . (0 === $index ? ' is-active' : '') . '" data-ship-modal-page-panel="' . esc_attr($index) . '"' . (0 === $index ? '' : ' hidden') . ' aria-hidden="' . (0 === $index ? 'false' : 'true') . '">' . $this->render_page_content($page, $title, $index) . '</section>';
+                    $page_markup .= '<section id="' . esc_attr($modal_id . '-page-' . $index) . '" class="ship-modal__page' . (0 === $index ? ' is-active' : '') . '" data-ship-modal-page-panel="' . esc_attr($index) . '" role="group" aria-label="' . esc_attr(((int) $index + 1) . ' / ' . $page_count . 'ページ') . '"' . (0 === $index ? '' : ' hidden') . ' aria-hidden="' . (0 === $index ? 'false' : 'true') . '">' . $this->render_page_content($page, $title, $index) . '</section>';
                 }
-                $controls = '<nav class="ship-modal__pager" aria-label="モーダルページ切り替え"><button type="button" class="ship-modal__pager-arrow" data-ship-modal-page-prev disabled>前へ</button><div class="ship-modal__pager-dots">';
+                $controls = '<nav class="ship-modal__pager" aria-label="モーダルページ切り替え"><button type="button" class="ship-modal__pager-arrow" data-ship-modal-page-prev aria-label="前のページ" disabled>前へ</button><div class="ship-modal__pager-dots">';
                 foreach ($pages as $index => $page) {
-                    $controls .= '<button type="button" class="ship-modal__pager-dot' . (0 === $index ? ' is-active' : '') . '" data-ship-modal-page="' . esc_attr($index) . '" aria-label="' . esc_attr(((int) $index + 1) . 'ページ目') . '"' . (0 === $index ? ' aria-current="true"' : '') . '>' . esc_html((string) ((int) $index + 1)) . '</button>';
+                    $controls .= '<button type="button" class="ship-modal__pager-dot' . (0 === $index ? ' is-active' : '') . '" data-ship-modal-page="' . esc_attr($index) . '" aria-controls="' . esc_attr($modal_id . '-page-' . $index) . '" aria-label="' . esc_attr(((int) $index + 1) . 'ページ目') . '"' . (0 === $index ? ' aria-current="true"' : '') . '>' . esc_html((string) ((int) $index + 1)) . '</button>';
                 }
-                $controls .= '</div><button type="button" class="ship-modal__pager-arrow" data-ship-modal-page-next' . (count($pages) < 2 ? ' disabled' : '') . '>次へ</button></nav>';
-                $content = '<div class="ship-modal__pages" data-ship-modal-page-count="' . esc_attr(count($pages)) . '">' . $page_markup . $controls . '</div>';
+                $controls .= '</div><span class="screen-reader-text" data-ship-modal-page-status aria-live="polite">1 / ' . esc_html($page_count) . 'ページ</span><button type="button" class="ship-modal__pager-arrow" data-ship-modal-page-next aria-label="次のページ"' . ($page_count < 2 ? ' disabled' : '') . '>次へ</button></nav>';
+                $content = '<div class="ship-modal__pages" data-ship-modal-page-count="' . esc_attr($page_count) . '">' . $page_markup . $controls . '</div>';
                 $content_class = ' ship-modal__content--pager' . ($pager_has_copy ? '' : ' ship-modal__content--pager-image-only');
             }
         } else {
             $content = wp_kses_post($this->meta($post_id, 'html'));
         }
-        if (! $content) {
+        if ($content === '') {
             return '';
+        }
+        if (! $preview) {
+            $this->rendered_modal_ids[$post_id] = true;
         }
         ob_start();
         if ('manual' === $trigger) {
@@ -1181,13 +1489,13 @@ final class Ship_Modal
             }
             $trigger_class = $shortcode ? 'ship-modal-trigger ship-modal-trigger--inline-' . $trigger_position : 'ship-modal-trigger ship-modal-trigger--floating ship-modal-trigger--floating-' . $trigger_position;
             $trigger_style = '--ship-modal-trigger-bg:' . $trigger_bg_color . ';--ship-modal-trigger-color:' . $trigger_text_color . ';';
-            echo '<button type="button" class="' . esc_attr($trigger_class) . '" style="' . esc_attr($trigger_style) . '" data-ship-modal-target="' . esc_attr($modal_id) . '">' . esc_html($button_text) . '</button>';
+            echo '<button type="button" class="' . esc_attr($trigger_class) . '" style="' . esc_attr($trigger_style) . '" data-ship-modal-target="' . esc_attr($modal_id) . '" aria-haspopup="dialog" aria-controls="' . esc_attr($modal_id) . '" aria-expanded="false" hidden>' . esc_html($button_text) . '</button>';
         }
         ?>
         <?php if ($custom_css !== '') : ?><style id="ship-modal-custom-css-<?php echo absint($post_id); ?>"><?php echo $custom_css; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?></style><?php endif; ?>
-        <div id="<?php echo esc_attr($modal_id); ?>" class="ship-modal ship-modal--<?php echo esc_attr($design); ?> ship-modal--id-<?php echo absint($post_id); ?>" style="<?php echo esc_attr($modal_style); ?>" data-post-id="<?php echo absint($post_id); ?>" data-modal-title="<?php echo esc_attr($title); ?>" data-content-type="<?php echo esc_attr($type); ?>" data-design="<?php echo esc_attr($design); ?>" data-trigger="<?php echo esc_attr($trigger); ?>" data-frequency="<?php echo esc_attr($frequency); ?>" data-delay="<?php echo esc_attr($delay); ?>" data-scroll-threshold="<?php echo esc_attr($scroll_threshold); ?>" data-auto-open="<?php echo 'auto' === $trigger ? '1' : '0'; ?>" data-close-overlay="<?php echo $close_overlay ? '1' : '0'; ?>" data-preview="<?php echo $preview ? '1' : '0'; ?>" role="dialog" aria-modal="true" aria-labelledby="<?php echo esc_attr($modal_id); ?>-title" hidden>
+        <div id="<?php echo esc_attr($modal_id); ?>" class="ship-modal ship-modal--<?php echo esc_attr($design); ?> ship-modal--id-<?php echo absint($post_id); ?>" style="<?php echo esc_attr($modal_style); ?>" data-post-id="<?php echo absint($post_id); ?>" data-event-token="<?php echo esc_attr($this->event_token($post_id)); ?>" data-modal-title="<?php echo esc_attr($title); ?>" data-content-type="<?php echo esc_attr($type); ?>" data-design="<?php echo esc_attr($design); ?>" data-trigger="<?php echo esc_attr($trigger); ?>" data-frequency="<?php echo esc_attr($frequency); ?>" data-delay="<?php echo esc_attr($delay); ?>" data-scroll-threshold="<?php echo esc_attr($scroll_threshold); ?>" data-schedule-start="<?php echo esc_attr($schedule_start ? $schedule_start * 1000 : 0); ?>" data-schedule-end="<?php echo esc_attr($schedule_end ? $schedule_end * 1000 : 0); ?>" data-auto-open="<?php echo 'auto' === $trigger ? '1' : '0'; ?>" data-close-overlay="<?php echo $close_overlay ? '1' : '0'; ?>" data-preview="<?php echo $preview ? '1' : '0'; ?>" role="dialog" aria-modal="true" aria-labelledby="<?php echo esc_attr($modal_id); ?>-title" hidden>
             <div class="ship-modal__backdrop" data-ship-modal-close></div>
-            <div class="ship-modal__dialog" role="document">
+            <div class="ship-modal__dialog" role="document" tabindex="-1">
                 <h2 id="<?php echo esc_attr($modal_id); ?>-title" class="screen-reader-text"><?php echo esc_html($title); ?></h2>
                 <?php if ($show_close) : ?><button type="button" class="ship-modal__close" aria-label="閉じる" data-ship-modal-close><span aria-hidden="true">×</span></button><?php endif; ?>
                 <div class="ship-modal__content<?php echo esc_attr($content_class); ?>"><?php echo $content; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?></div>
@@ -1215,17 +1523,52 @@ final class Ship_Modal
         }
         wp_enqueue_style('ship-modal', SHIP_MODAL_URL . 'assets/css/modal.css', array(), SHIP_MODAL_VERSION);
         wp_enqueue_script('ship-modal', SHIP_MODAL_URL . 'assets/js/modal.js', array(), SHIP_MODAL_VERSION, true);
-        wp_localize_script('ship-modal', 'ShipModalConfig', array('ajaxUrl' => admin_url('admin-ajax.php'), 'nonce' => wp_create_nonce('ship_modal_event')));
+        wp_localize_script('ship-modal', 'ShipModalConfig', array('ajaxUrl' => admin_url('admin-ajax.php')));
         return $this->render_modal($post_id, true);
+    }
+
+    private function increment_counter_meta($post_id, $meta_key)
+    {
+        global $wpdb;
+
+        $updated = $wpdb->query($wpdb->prepare(
+            "UPDATE {$wpdb->postmeta} SET meta_value = CAST(meta_value AS UNSIGNED) + 1 WHERE post_id = %d AND meta_key = %s",
+            absint($post_id),
+            $meta_key
+        ));
+        if (0 === $updated) {
+            if (! add_post_meta($post_id, $meta_key, 1, true)) {
+                $updated = $wpdb->query($wpdb->prepare(
+                    "UPDATE {$wpdb->postmeta} SET meta_value = CAST(meta_value AS UNSIGNED) + 1 WHERE post_id = %d AND meta_key = %s",
+                    absint($post_id),
+                    $meta_key
+                ));
+                if (! is_int($updated) || $updated < 1) {
+                    return false;
+                }
+            }
+        } elseif (false === $updated) {
+            return false;
+        }
+        return true;
     }
 
     public function record_event()
     {
-        check_ajax_referer('ship_modal_event', 'nonce');
         $post_id = isset($_POST['modal_id']) ? absint($_POST['modal_id']) : 0;
         $event = isset($_POST['event']) ? sanitize_key(wp_unslash($_POST['event'])) : '';
-        if (! $post_id || 'ship_modal' !== get_post_type($post_id) || ! in_array($event, array('impression', 'click', 'close', 'page_view'), true)) {
+        if (! $post_id || 'ship_modal' !== get_post_type($post_id) || 'publish' !== get_post_status($post_id) || ! in_array($event, array('impression', 'click', 'close', 'page_view'), true)) {
             wp_send_json_error(array('message' => 'invalid request'), 400);
+        }
+        $submitted_token = isset($_POST['token']) ? sanitize_text_field(wp_unslash($_POST['token'])) : '';
+        $valid_token = $submitted_token !== '' && hash_equals($this->event_token($post_id), $submitted_token);
+        $legacy_nonce = isset($_POST['nonce']) ? sanitize_text_field(wp_unslash($_POST['nonce'])) : '';
+        $valid_legacy_nonce = $legacy_nonce !== '' && wp_verify_nonce($legacy_nonce, 'ship_modal_event');
+        if (! $valid_token && ! $valid_legacy_nonce) {
+            wp_send_json_error(array('message' => 'invalid token'), 403);
+        }
+        if (! $this->is_in_schedule($post_id)) {
+            wp_send_json_success(array('recorded' => false, 'reason' => 'outside_schedule'));
         }
         $keys = array(
             'impression' => '_ship_modal_impressions',
@@ -1234,25 +1577,55 @@ final class Ship_Modal
             'page_view' => '_ship_modal_page_views',
         );
         $key = $keys[$event];
-        $count = (int) get_post_meta($post_id, $key, true);
-        update_post_meta($post_id, $key, $count + 1);
 
         // 集計画面・CSV用の日別データも同時に保存する。既存のメタ集計は互換性のため残す。
         global $wpdb;
-        $this->maybe_upgrade_stats_table();
-        $wpdb->query($wpdb->prepare(
+        if (! $this->maybe_upgrade_stats_table()) {
+            wp_send_json_error(array('message' => 'stats table is unavailable'), 500);
+        }
+        $daily_query = $wpdb->prepare(
             "INSERT INTO {$this->stats_table_name()} (modal_id, stat_date, event_name, event_count) VALUES (%d, %s, %s, 1) ON DUPLICATE KEY UPDATE event_count = event_count + 1",
             $post_id,
             current_time('Y-m-d'),
             $event
-        ));
+        );
+        $daily_recorded = false;
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            if (false === $wpdb->query('START TRANSACTION')) {
+                wp_send_json_error(array('message' => 'could not start transaction'), 500);
+            }
+            if (false !== $wpdb->query($daily_query)) {
+                $daily_recorded = true;
+                break;
+            }
+            $wpdb->query('ROLLBACK');
+            if (0 === $attempt) {
+                delete_option('ship_modal_stats_db_version');
+                delete_transient('ship_modal_stats_schema_checked');
+                if (! $this->maybe_upgrade_stats_table()) {
+                    wp_send_json_error(array('message' => 'stats table repair failed'), 500);
+                }
+            }
+        }
+        if (! $daily_recorded) {
+            wp_send_json_error(array('message' => 'could not record event'), 500);
+        }
+        if (! $this->increment_counter_meta($post_id, $key)) {
+            $wpdb->query('ROLLBACK');
+            wp_send_json_error(array('message' => 'could not update event total'), 500);
+        }
+        if (false === $wpdb->query('COMMIT')) {
+            $wpdb->query('ROLLBACK');
+            wp_send_json_error(array('message' => 'could not commit event'), 500);
+        }
+        wp_cache_delete(absint($post_id), 'post_meta');
         wp_send_json_success();
     }
 
     public function export_stats()
     {
         $post_id = isset($_GET['post_id']) ? absint($_GET['post_id']) : 0;
-        if (! $this->is_admin_user() || ! $post_id || 'ship_modal' !== get_post_type($post_id)) {
+        if (! $this->is_admin_user() || ! $post_id || 'ship_modal' !== get_post_type($post_id) || ! current_user_can('edit_post', $post_id)) {
             wp_die('この機能は管理者のみ利用できます。', 'Ship Modal', array('response' => 403));
         }
         check_admin_referer('ship_modal_export_stats_' . $post_id);
@@ -1265,26 +1638,41 @@ final class Ship_Modal
             $to = $temporary;
         }
         $rows = $this->get_daily_stats($post_id, $from, $to);
+        if ($this->stats_db_error !== '') {
+            wp_die('日別集計を読み込めないため、CSVを出力できませんでした。データベースを確認してください。', 'Ship Modal', array('response' => 500));
+        }
         $labels = $this->stats_event_labels();
         $title = get_the_title($post_id);
         $period_totals = array_fill_keys(array_keys($labels), 0);
 
         nocache_headers();
         header('Content-Type: text/csv; charset=UTF-8');
-        header('Content-Disposition: attachment; filename="ship-modal-' . $post_id . '-stats-' . date('Ymd-His') . '.csv"');
+        header('Content-Disposition: attachment; filename="ship-modal-' . $post_id . '-stats-' . current_time('Ymd-His') . '.csv"');
         $output = fopen('php://output', 'w');
+        if (false === $output) {
+            wp_die('CSVを作成できませんでした。', 'Ship Modal', array('response' => 500));
+        }
         fwrite($output, "\xEF\xBB\xBF");
-        fputcsv($output, array('モーダルID', 'タイトル', '日付', 'イベント', '件数'));
+        $this->write_csv_row($output, array('モーダルID', 'タイトル', '日付', 'イベント', '件数'));
         foreach ($rows as $row) {
             $event_label = isset($labels[$row->event_name]) ? $labels[$row->event_name] : $row->event_name;
             $count = (int) $row->event_count;
             if (isset($period_totals[$row->event_name])) {
                 $period_totals[$row->event_name] += $count;
             }
-            fputcsv($output, array($post_id, $title, $row->stat_date, $event_label, $count));
+            $this->write_csv_row($output, array($post_id, $title, $row->stat_date, $event_label, $count));
+        }
+        if ($from === '' && $to === '') {
+            foreach ($this->counter_meta_keys() as $event => $meta_key) {
+                $legacy_count = max(0, (int) get_post_meta($post_id, $meta_key, true) - $period_totals[$event]);
+                if ($legacy_count > 0) {
+                    $this->write_csv_row($output, array($post_id, $title, '日別導入前', $labels[$event], $legacy_count));
+                    $period_totals[$event] += $legacy_count;
+                }
+            }
         }
         foreach ($period_totals as $event => $count) {
-            fputcsv($output, array($post_id, $title, '期間合計', isset($labels[$event]) ? $labels[$event] : $event, $count));
+            $this->write_csv_row($output, array($post_id, $title, '期間合計', isset($labels[$event]) ? $labels[$event] : $event, $count));
         }
         fclose($output);
         exit;
@@ -1292,18 +1680,55 @@ final class Ship_Modal
 
     public function reset_stats()
     {
-        $post_id = isset($_POST['post_id']) ? absint($_POST['post_id']) : (isset($_GET['post_id']) ? absint($_GET['post_id']) : 0);
-        if (! $this->is_admin_user() || ! $post_id || 'ship_modal' !== get_post_type($post_id)) {
+        if (! isset($_SERVER['REQUEST_METHOD']) || 'POST' !== strtoupper(sanitize_text_field(wp_unslash($_SERVER['REQUEST_METHOD'])))) {
+            wp_die('不正なリクエストです。', 'Ship Modal', array('response' => 405));
+        }
+        $post_id = isset($_POST['post_id']) ? absint($_POST['post_id']) : 0;
+        if (! $this->is_admin_user() || ! $post_id || 'ship_modal' !== get_post_type($post_id) || ! current_user_can('edit_post', $post_id)) {
             wp_die('この機能は管理者のみ利用できます。', 'Ship Modal', array('response' => 403));
         }
         check_admin_referer('ship_modal_reset_stats_' . $post_id);
 
-        foreach (array('_ship_modal_impressions', '_ship_modal_clicks', '_ship_modal_closes', '_ship_modal_page_views') as $key) {
-            delete_post_meta($post_id, $key);
-        }
         global $wpdb;
-        $this->maybe_upgrade_stats_table();
-        $wpdb->delete($this->stats_table_name(), array('modal_id' => $post_id), array('%d'));
+        if (! $this->maybe_upgrade_stats_table()) {
+            wp_die('日別集計テーブルを準備できませんでした。', 'Ship Modal', array('response' => 500));
+        }
+        if (! $this->ensure_counter_meta($post_id)) {
+            wp_die('累計データを初期化できませんでした。', 'Ship Modal', array('response' => 500));
+        }
+        $daily_deleted = false;
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            if (false === $wpdb->query('START TRANSACTION')) {
+                wp_die('計測リセットを開始できませんでした。', 'Ship Modal', array('response' => 500));
+            }
+            if (false !== $wpdb->delete($this->stats_table_name(), array('modal_id' => $post_id), array('%d'))) {
+                $daily_deleted = true;
+                break;
+            }
+            $wpdb->query('ROLLBACK');
+            if (0 === $attempt) {
+                delete_option('ship_modal_stats_db_version');
+                delete_transient('ship_modal_stats_schema_checked');
+                if (! $this->maybe_upgrade_stats_table()) {
+                    wp_die('日別集計テーブルを修復できませんでした。', 'Ship Modal', array('response' => 500));
+                }
+            }
+        }
+        if (! $daily_deleted) {
+            wp_die('計測データを削除できませんでした。', 'Ship Modal', array('response' => 500));
+        }
+        $counter_keys = array_values($this->counter_meta_keys());
+        $placeholders = implode(',', array_fill(0, count($counter_keys), '%s'));
+        $parameters = array_merge(array(absint($post_id)), $counter_keys);
+        $meta_result = $wpdb->query($wpdb->prepare(
+            "UPDATE {$wpdb->postmeta} SET meta_value = '0' WHERE post_id = %d AND meta_key IN ({$placeholders})",
+            $parameters
+        ));
+        if (false === $meta_result || false === $wpdb->query('COMMIT')) {
+            $wpdb->query('ROLLBACK');
+            wp_die('累計データをリセットできませんでした。', 'Ship Modal', array('response' => 500));
+        }
+        wp_cache_delete(absint($post_id), 'post_meta');
 
         $location = add_query_arg(
             array('post' => $post_id, 'action' => 'edit', 'ship_modal_stats_reset' => '1'),
@@ -1311,6 +1736,27 @@ final class Ship_Modal
         );
         wp_safe_redirect($location);
         exit;
+    }
+
+    private function write_csv_row($output, $cells)
+    {
+        $safe_cells = array_map(function ($value) {
+            $value = (string) $value;
+            if (preg_match('/^[\x00-\x20]*[=+\-@]/u', $value)) {
+                $value = "'" . $value;
+            }
+            return $value;
+        }, $cells);
+        return fputcsv($output, $safe_cells, ',', '"', '');
+    }
+
+    public function delete_modal_stats($post_id)
+    {
+        if ('ship_modal' !== get_post_type($post_id) || '1.1' !== get_option('ship_modal_stats_db_version')) {
+            return;
+        }
+        global $wpdb;
+        $wpdb->delete($this->stats_table_name(), array('modal_id' => absint($post_id)), array('%d'));
     }
 
     public function render_stats_reset_notice()

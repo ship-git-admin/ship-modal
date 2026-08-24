@@ -9,14 +9,16 @@
 .ship-modal__dialog{overflow:visible}
 .ship-modal__content{max-height:calc(100dvh - 24px);overflow-y:auto;box-sizing:border-box}
 .ship-modal__close{top:-18px;right:-18px}
+.ship-modal--fullscreen .ship-modal__close{top:12px;right:12px}
 .ship-modal--fullscreen .ship-modal__content{max-height:100%;overflow-y:auto}
-@media (max-width:767px){.ship-modal__content{max-height:calc(100dvh - 24px)}.ship-modal__close{top:-14px;right:-14px}}
+@media (max-width:767px){.ship-modal__content{max-height:calc(100dvh - 24px)}.ship-modal__close{top:-14px;right:-14px}.ship-modal--fullscreen .ship-modal__close{top:8px;right:8px}}
 .ship-modal-trigger{background:var(--ship-modal-trigger-bg,#0f766e);color:var(--ship-modal-trigger-color,#fff)}
 .ship-modal-trigger--floating-left{left:20px;right:auto}
 .ship-modal-trigger--floating-center{left:50%;right:auto;transform:translateX(-50%)}
 .ship-modal-trigger--inline-left{display:flex;margin-right:auto}
 .ship-modal-trigger--inline-center{display:flex;margin-right:auto;margin-left:auto}
 .ship-modal-trigger--inline-right{display:flex;margin-left:auto}
+.ship-modal-trigger[hidden]{display:none!important}
 
 /* 画像は元サイズを上限にし、コンテナが広い場合だけ中央に置く。 */
 .ship-modal__content .ship-modal__image,
@@ -144,7 +146,7 @@
   .ship-modal--side .ship-modal__content{max-height:calc(100dvh - 48px)}
   .ship-modal__close{top:-10px;right:-10px;width:32px;height:32px;font-size:22px}
   .ship-modal__pager-arrow{box-sizing:border-box;min-width:36px!important;min-height:36px!important;width:36px!important;height:36px!important;aspect-ratio:1;padding:0!important}
-  .ship-modal__pager-dot{box-sizing:border-box;min-width:9px!important;min-height:9px!important;width:9px!important;height:9px!important;padding:0!important;flex:0 0 9px!important}
+  .ship-modal__pager-dot{font-size:0}
 }
 
 /* ページャーのページ見出しにも通常見出しと同じ下線装飾を付ける。 */
@@ -154,3 +156,56 @@
 .ship-modal--bottom .ship-modal__content{padding:var(--ship-modal-padding,20px)}
 .ship-modal--bottom .ship-modal__content--flush,
 .ship-modal--bottom .ship-modal__content--pager{padding:0}
+
+/* テーマ側のhtmlフォントサイズに左右されない読みやすい基準値。 */
+.ship-modal__content,.ship-modal__hybrid-html,.ship-modal__page-html{font-size:16px}
+.ship-modal__content h1,.ship-modal__hybrid-html h1,.ship-modal__page-html h1{font-size:26px}
+.ship-modal__content h2,.ship-modal__hybrid-html h2,.ship-modal__page-html h2{font-size:22px}
+.ship-modal__content h3,.ship-modal__hybrid-html h3,.ship-modal__page-html h3{font-size:19px}
+.ship-modal__content h4,.ship-modal__hybrid-html h4,.ship-modal__page-html h4{font-size:17px}
+
+/* ドットの見た目は小さく保ち、実際の操作領域だけを広げる。 */
+.ship-modal .ship-modal__pager .ship-modal__pager-dot,
+.ship-modal .ship-modal__pager .ship-modal__pager-dot.is-active,
+.ship-modal .ship-modal__pager .ship-modal__pager-dot[aria-current="true"]{
+  position:relative;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  box-sizing:border-box;
+  width:28px;
+  height:28px;
+  min-width:28px;
+  min-height:28px!important;
+  padding:0;
+  overflow:visible;
+  flex:0 0 28px;
+  background:transparent!important;
+}
+.ship-modal .ship-modal__pager .ship-modal__pager-dot::before{
+  content:'';
+  display:block;
+  width:10px;
+  height:10px;
+  border-radius:50%;
+  background:var(--ship-modal-secondary,#f1f5f9);
+}
+.ship-modal .ship-modal__pager .ship-modal__pager-dot.is-active::before,
+.ship-modal .ship-modal__pager .ship-modal__pager-dot[aria-current="true"]::before{background:var(--ship-modal-accent,#0f766e)}
+.ship-modal__close:focus-visible,.ship-modal__button:focus-visible,.ship-modal__pager-arrow:focus-visible,.ship-modal__pager-dot:focus-visible,.ship-modal__link:focus-visible{outline:3px solid #0ea5e9;outline-offset:3px}
+
+/* container query非対応ブラウザでも同じ実幅付近で1カラムにする。 */
+@media (max-width:404px){
+  .ship-modal .ship-modal__buttons{grid-template-columns:1fr}
+  .ship-modal .ship-modal__buttons--count-1 .ship-modal__button,
+  .ship-modal .ship-modal__buttons--count-3 .ship-modal__button:nth-child(3){grid-column:1;width:100%}
+}
+@media (max-width:767px){
+  .ship-modal__content,.ship-modal__hybrid-html,.ship-modal__page-html{font-size:15px}
+  .ship-modal__content h1,.ship-modal__hybrid-html h1,.ship-modal__page-html h1{font-size:22px}
+  .ship-modal__content h2,.ship-modal__hybrid-html h2,.ship-modal__page-html h2{font-size:19px}
+  .ship-modal__content h3,.ship-modal__hybrid-html h3,.ship-modal__page-html h3{font-size:17px}
+}
+@media (prefers-reduced-motion:reduce){
+  .ship-modal,.ship-modal__dialog{transition:none}
+}
