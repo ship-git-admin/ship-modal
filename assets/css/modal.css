@@ -156,9 +156,13 @@
 .ship-modal__page-html h3{padding-bottom:.35em;border-bottom:2px solid var(--ship-modal-accent,#0f766e);border-color:var(--ship-modal-accent,#0f766e)!important}
 
 /* 下部バナーも通常は内側の余白を維持し、画像のみ・ページャーだけ全面表示にする。 */
+.ship-modal--bottom{padding:24px}
 .ship-modal--bottom .ship-modal__content{padding:var(--ship-modal-padding,20px)}
 .ship-modal--bottom .ship-modal__content--flush,
 .ship-modal--bottom .ship-modal__content--pager{padding:0}
+@media (max-width:767px){
+  .ship-modal--bottom{padding:12px}
+}
 
 /* テーマ側のhtmlフォントサイズに左右されない読みやすい基準値。 */
 .ship-modal__content,.ship-modal__hybrid-html,.ship-modal__page-html{font-size:16px}
