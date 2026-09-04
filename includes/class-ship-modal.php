@@ -26,6 +26,7 @@ final class Ship_Modal
         add_action('init', array($this, 'ensure_admin_capabilities'), 2);
         add_action('init', array($this, 'register_post_type'), 10);
         add_action('admin_menu', array($this, 'hide_non_admin_menu'), 999);
+        add_action('admin_menu', array($this, 'register_settings_page'), 20);
         add_action('admin_init', array($this, 'restrict_non_admin_access'));
         add_action('add_meta_boxes', array($this, 'register_meta_boxes'));
         add_action('save_post_ship_modal', array($this, 'save_modal'), 10, 2);
@@ -42,6 +43,7 @@ final class Ship_Modal
         add_action('wp_ajax_nopriv_ship_modal_event', array($this, 'record_event'));
         add_action('wp_ajax_ship_modal_search_targets', array($this, 'search_targets'));
         add_action('admin_post_ship_modal_preview', array($this, 'preview'));
+        add_action('admin_post_ship_modal_save_settings', array($this, 'save_settings'));
         add_action('admin_post_ship_modal_export_stats', array($this, 'export_stats'));
         add_action('admin_post_ship_modal_reset_stats', array($this, 'reset_stats'));
         add_action('before_delete_post', array($this, 'delete_modal_stats'));
@@ -450,6 +452,146 @@ final class Ship_Modal
         if (! $this->can_manage_modal()) {
             remove_menu_page('edit.php?post_type=ship_modal');
         }
+    }
+
+    /**
+     * GA4連携のサイト共通設定を返す。
+     *
+     * 測定IDは公開情報だが、送信方式は二重計測に関わるため、
+     * 管理画面から保存した値だけをフロントへ渡す。
+     */
+    private function ga4_settings()
+    {
+        $defaults = array(
+            'measurement_id' => '',
+            'transport' => 'auto',
+        );
+        $stored = get_option('ship_modal_ga4_settings', array());
+        if (! is_array($stored)) {
+            $stored = array();
+        }
+        $measurement_id = isset($stored['measurement_id']) && is_scalar($stored['measurement_id']) ? strtoupper(trim((string) $stored['measurement_id'])) : '';
+        if (! preg_match('/^G-[A-Z0-9]+$/', $measurement_id)) {
+            $measurement_id = '';
+        }
+        $transport = isset($stored['transport']) ? sanitize_key($stored['transport']) : $defaults['transport'];
+        if (! in_array($transport, array('auto', 'direct', 'datalayer'), true)) {
+            $transport = $defaults['transport'];
+        }
+        return array(
+            'measurement_id' => $measurement_id,
+            'transport' => $transport,
+        );
+    }
+
+    private function sanitize_ga4_measurement_id($value)
+    {
+        $value = strtoupper(trim(sanitize_text_field((string) $value)));
+        return preg_match('/^G-[A-Z0-9]+$/', $value) ? $value : '';
+    }
+
+    public function register_settings_page()
+    {
+        if (! $this->can_manage_modal()) {
+            return;
+        }
+        add_submenu_page(
+            'edit.php?post_type=ship_modal',
+            '計測・GA4連携設定',
+            '計測・GA4連携設定',
+            'edit_ship_modals',
+            'ship-modal-settings',
+            array($this, 'render_settings_page')
+        );
+    }
+
+    public function save_settings()
+    {
+        if (! $this->can_manage_modal()) {
+            wp_die('モーダル設定を操作する権限がありません。', 'Ship Modal', array('response' => 403));
+        }
+        check_admin_referer('ship_modal_save_settings');
+
+        $raw_measurement_id = isset($_POST['ship_modal_ga4_measurement_id']) && is_scalar($_POST['ship_modal_ga4_measurement_id'])
+            ? wp_unslash($_POST['ship_modal_ga4_measurement_id'])
+            : '';
+        $measurement_id = $this->sanitize_ga4_measurement_id($raw_measurement_id);
+        $transport = isset($_POST['ship_modal_ga4_transport'])
+            ? sanitize_key(wp_unslash($_POST['ship_modal_ga4_transport']))
+            : 'auto';
+        if (! in_array($transport, array('auto', 'direct', 'datalayer'), true)) {
+            $transport = 'auto';
+        }
+        update_option('ship_modal_ga4_settings', array(
+            'measurement_id' => $measurement_id,
+            'transport' => $transport,
+        ), false);
+
+        $args = array(
+            'post_type' => 'ship_modal',
+            'page' => 'ship-modal-settings',
+            'ship_modal_settings_saved' => '1',
+        );
+        if (trim((string) $raw_measurement_id) !== '' && '' === $measurement_id) {
+            $args['ship_modal_settings_error'] = 'measurement_id';
+        }
+        wp_safe_redirect(add_query_arg($args, admin_url('edit.php')));
+        exit;
+    }
+
+    public function render_settings_page()
+    {
+        if (! $this->can_manage_modal()) {
+            wp_die('モーダル設定を操作する権限がありません。', 'Ship Modal', array('response' => 403));
+        }
+        $settings = $this->ga4_settings();
+        $saved = isset($_GET['ship_modal_settings_saved']) && '1' === sanitize_text_field(wp_unslash($_GET['ship_modal_settings_saved']));
+        $invalid_measurement_id = isset($_GET['ship_modal_settings_error']) && 'measurement_id' === sanitize_key(wp_unslash($_GET['ship_modal_settings_error']));
+        ?>
+        <div class="wrap ship-modal-settings-page">
+            <h1>計測・GA4連携設定</h1>
+            <?php if ($saved) : ?><div class="notice notice-success is-dismissible"><p>計測設定を保存しました。</p></div><?php endif; ?>
+            <?php if ($invalid_measurement_id) : ?><div class="notice notice-warning"><p>GA4測定IDの形式が正しくないため、空欄として保存しました。<code>G-XXXXXXXXXX</code> の形式で入力してください。</p></div><?php endif; ?>
+            <div class="notice notice-info inline ship-modal-settings-intro">
+                <p><strong>サイトごとに一度だけ設定してください。</strong></p>
+                <p>GTMでモーダル用のカスタムイベントタグを作らなくても、既存のGA4へ直接イベントを送信できます。測定IDが空欄で、ページ上に既存の <code>gtag()</code> がない場合は、従来どおり <code>dataLayer</code> へ出力します。</p>
+            </div>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                <input type="hidden" name="action" value="ship_modal_save_settings">
+                <?php wp_nonce_field('ship_modal_save_settings'); ?>
+                <table class="form-table ship-modal-settings-table" role="presentation">
+                    <tr>
+                        <th scope="row"><label for="ship-modal-ga4-measurement-id">GA4測定ID</label></th>
+                        <td>
+                            <input type="text" class="regular-text code" name="ship_modal_ga4_measurement_id" id="ship-modal-ga4-measurement-id" value="<?php echo esc_attr($settings['measurement_id']); ?>" placeholder="G-XXXXXXXXXX" pattern="G-[A-Za-z0-9]+" autocomplete="off">
+                            <p class="description">GA4管理画面の「データストリーム」にある測定ID（<code>G-</code>から始まる値）を入力します。測定IDはパスワードではありませんが、サイト内で公開される値です。</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="ship-modal-ga4-transport">送信方式</label></th>
+                        <td>
+                            <select name="ship_modal_ga4_transport" id="ship-modal-ga4-transport">
+                                <option value="auto" <?php selected($settings['transport'], 'auto'); ?>>自動（推奨）</option>
+                                <option value="direct" <?php selected($settings['transport'], 'direct'); ?>>GA4へ直接送信</option>
+                                <option value="datalayer" <?php selected($settings['transport'], 'datalayer'); ?>>GTMのdataLayerのみ</option>
+                            </select>
+                            <div class="ship-modal-settings-choice-list">
+                                <p><strong>自動（推奨）</strong>：既存の <code>gtag()</code> があれば直接送信し、なければ測定IDからGoogleタグを読み込みます。どちらも使えない場合はdataLayerへ切り替えます。</p>
+                                <p><strong>GA4へ直接送信</strong>：測定IDまたは既存の <code>gtag()</code> を使って送信します。GTM側で同じイベントを転送している場合は二重計測に注意してください。</p>
+                                <p><strong>GTMのdataLayerのみ</strong>：現在の方式です。GTM側でGA4イベントタグを設定している場合に選択します。</p>
+                            </div>
+                        </td>
+                    </tr>
+                </table>
+                <?php submit_button('計測設定を保存'); ?>
+            </form>
+            <div class="card ship-modal-settings-card">
+                <h2>送信されるイベント</h2>
+                <p><code>ship_modal_impression</code>（表示）、<code>ship_modal_click</code>（モーダル内リンク）、<code>ship_modal_close</code>（閉じる）、<code>ship_modal_page_view</code>（ページャー閲覧）を送信します。</p>
+                <p class="description">プレビュー中はGA4・dataLayer・プラグイン内部の計測を行いません。保存後、公開ページで確認してください。</p>
+            </div>
+        </div>
+        <?php
     }
 
     public function restrict_non_admin_access()
@@ -1244,7 +1386,15 @@ final class Ship_Modal
     public function enqueue_admin_assets($hook)
     {
         $screen = get_current_screen();
-        if (! $screen || 'ship_modal' !== $screen->post_type || ! in_array($hook, array('post.php', 'post-new.php'), true)) {
+        if (! $screen) {
+            return;
+        }
+        $is_settings_page = isset($_GET['page']) && 'ship-modal-settings' === sanitize_key(wp_unslash($_GET['page']));
+        if ($is_settings_page) {
+            wp_enqueue_style('ship-modal-admin', SHIP_MODAL_URL . 'assets/css/admin.css', array(), SHIP_MODAL_VERSION);
+            return;
+        }
+        if ('ship_modal' !== $screen->post_type || ! in_array($hook, array('post.php', 'post-new.php'), true)) {
             return;
         }
         wp_enqueue_media();
@@ -1455,7 +1605,17 @@ final class Ship_Modal
             return;
         }
         wp_enqueue_script('ship-modal', SHIP_MODAL_URL . 'assets/js/modal.js', array(), SHIP_MODAL_VERSION, true);
-        wp_localize_script('ship-modal', 'ShipModalConfig', array('ajaxUrl' => admin_url('admin-ajax.php')));
+        wp_localize_script('ship-modal', 'ShipModalConfig', $this->front_script_config());
+    }
+
+    private function front_script_config()
+    {
+        $settings = $this->ga4_settings();
+        return array(
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'ga4MeasurementId' => $settings['measurement_id'],
+            'ga4Transport' => $settings['transport'],
+        );
     }
 
     private function event_token($post_id)
@@ -1713,7 +1873,7 @@ final class Ship_Modal
         }
         wp_enqueue_style('ship-modal', SHIP_MODAL_URL . 'assets/css/modal.css', array(), SHIP_MODAL_VERSION);
         wp_enqueue_script('ship-modal', SHIP_MODAL_URL . 'assets/js/modal.js', array(), SHIP_MODAL_VERSION, true);
-        wp_localize_script('ship-modal', 'ShipModalConfig', array('ajaxUrl' => admin_url('admin-ajax.php')));
+        wp_localize_script('ship-modal', 'ShipModalConfig', $this->front_script_config());
         return $this->render_modal($post_id, true);
     }
 

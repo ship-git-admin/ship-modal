@@ -5,6 +5,7 @@
   var activeModal = null;
   var previousFocus = null;
   var pendingModals = [];
+  var gtagScriptRequested = false;
 
   function localDateKey() {
     var date = new Date();
@@ -108,7 +109,7 @@
     return { index: isNaN(index) ? 0 : index, count: isNaN(count) ? 0 : count };
   }
 
-  function pushDataLayer(modal, eventName, details) {
+  function analyticsPayload(modal, eventName, details) {
     if (!modal) return;
     var page = currentPage(modal);
     var payload = {
@@ -123,6 +124,11 @@
       ship_modal_page_count: page.count
     };
     Object.keys(details || {}).forEach(function (key) { payload[key] = details[key]; });
+    return payload;
+  }
+
+  function pushDataLayer(payload) {
+    if (!payload) return;
     if (!window.dataLayer) window.dataLayer = [];
     if (typeof window.dataLayer.push !== 'function') return;
     try {
@@ -130,11 +136,56 @@
     } catch (e) { /* third-party GTM code must never block the UI */ }
   }
 
+  function ensureGtag() {
+    var measurementId = String(config.ga4MeasurementId || '').trim();
+    var hadGtag = typeof window.gtag === 'function';
+    if (!hadGtag && !measurementId) return false;
+    if (!hadGtag) {
+      window.dataLayer = window.dataLayer || [];
+      window.gtag = function () { window.dataLayer.push(arguments); };
+      window.gtag('js', new Date());
+      window.gtag('config', measurementId, { send_page_view: false });
+    }
+    if (!hadGtag && measurementId && !gtagScriptRequested) {
+      gtagScriptRequested = true;
+      if (!document.getElementById('ship-modal-ga4-script')) {
+        var script = document.createElement('script');
+        script.id = 'ship-modal-ga4-script';
+        script.async = true;
+        script.src = 'https://www.googletagmanager.com/gtag/js?id=' + encodeURIComponent(measurementId);
+        (document.head || document.documentElement).appendChild(script);
+      }
+    }
+    return typeof window.gtag === 'function';
+  }
+
+  function pushGtag(payload) {
+    if (!payload || !ensureGtag()) return false;
+    var parameters = {};
+    Object.keys(payload).forEach(function (key) {
+      if (key !== 'event') parameters[key] = payload[key];
+    });
+    try {
+      window.gtag('event', payload.event, parameters);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function sendAnalytics(modal, eventName, details) {
+    var payload = analyticsPayload(modal, eventName, details);
+    if (!payload) return;
+    var transport = config.ga4Transport || 'auto';
+    if (transport !== 'datalayer' && pushGtag(payload)) return;
+    pushDataLayer(payload);
+  }
+
   function track(modal, event, details) {
     if (modal && modal.dataset.preview === '1') return;
     try { trackServer(modal, event); } catch (e) { /* analytics must never block the UI */ }
     var eventName = event === 'impression' ? 'ship_modal_impression' : event === 'click' ? 'ship_modal_click' : event === 'close' ? 'ship_modal_close' : 'ship_modal_page_view';
-    pushDataLayer(modal, eventName, details);
+    sendAnalytics(modal, eventName, details);
   }
 
   function focusable(modal) {

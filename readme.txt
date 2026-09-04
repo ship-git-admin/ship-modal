@@ -3,7 +3,7 @@ Contributors: shipinc
 Requires at least: 4.8
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.7.4
+Stable tag: 1.8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -24,6 +24,11 @@ HTML、画像、画像＋テキスト、ページャー、表示期間、表示�
 3. 「モーダル」から内容と表示設定を登録します。
 
 == Changelog ==
+
+= 1.8.0 =
+* GTMの個別カスタムイベントタグがなくても、既存のgtagまたは設定したGA4測定IDへ直接イベントを送信できるようにした。
+* モーダル管理画面にサイト共通のGA4連携設定を追加。
+* 既存のdataLayer送信と、GTMのみを使う送信方式も維持。
 
 = 1.7.4 =
 * モーダル内のボタンと閉じるボタンを、コンテナの角丸設定にかかわらず常に最大角丸で表示。
