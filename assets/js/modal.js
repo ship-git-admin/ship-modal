@@ -9,6 +9,7 @@
   var gtagScriptState = 'idle';
   var gtagOwnedByShipModal = false;
   var gtagConfiguredIds = {};
+  var shipModalQueuedGtagEntries = [];
   var backgroundInertState = [];
   var ga4ConsentGranted = config.ga4Enabled !== false;
 
@@ -20,6 +21,7 @@
     ga4ConsentGranted = granted === true || granted === 1 || granted === '1' || granted === 'true' || granted === 'granted';
     // フルページキャッシュ下でもCMPの変更を以後のイベントへ反映する。
     config.ga4Enabled = ga4ConsentGranted;
+    if (!ga4ConsentGranted) clearQueuedGtagCommands();
   }
 
   // CMPからページ表示後に呼び出せるランタイムAPI。既存の名前空間は保持する。
@@ -254,6 +256,18 @@
     } catch (e) { /* third-party GTM code must never block the UI */ }
   }
 
+  function clearQueuedGtagCommands() {
+    if (!shipModalQueuedGtagEntries.length || !window.dataLayer || typeof window.dataLayer.splice !== 'function') {
+      shipModalQueuedGtagEntries = [];
+      return;
+    }
+    shipModalQueuedGtagEntries.forEach(function (entry) {
+      var index = window.dataLayer.indexOf ? window.dataLayer.indexOf(entry) : -1;
+      if (index > -1) window.dataLayer.splice(index, 1);
+    });
+    shipModalQueuedGtagEntries = [];
+  }
+
   function ensureGtag() {
     if (!analyticsConsentGranted()) return false;
     if (gtagScriptState === 'error') return false;
@@ -263,7 +277,12 @@
     if (!hadGtag) {
       gtagOwnedByShipModal = true;
       window.dataLayer = window.dataLayer || [];
-      window.gtag = function () { window.dataLayer.push(arguments); };
+      window.gtag = function () {
+        if (!analyticsConsentGranted()) return;
+        var command = arguments;
+        window.dataLayer.push(command);
+        shipModalQueuedGtagEntries.push(command);
+      };
       window.gtag('js', new Date());
     } else {
       gtagScriptState = 'ready';
