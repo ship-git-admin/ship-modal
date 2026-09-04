@@ -49,6 +49,9 @@ final class Ship_Modal
         add_action('admin_post_ship_modal_export_stats', array($this, 'export_stats'));
         add_action('admin_post_ship_modal_reset_stats', array($this, 'reset_stats'));
         add_action('before_delete_post', array($this, 'delete_modal_stats'));
+        // Yoast Duplicate Postがコピーした計測値を、Ship Modalの複製後だけ初期化する。
+        // 他の投稿タイプの複製には影響させない。
+        add_action('duplicate_post_after_duplicated', array($this, 'reset_duplicated_modal_stats'), 100, 4);
         add_action('ship_modal_cleanup_event_claims', array($this, 'cleanup_event_claims'));
     }
 
@@ -2402,6 +2405,11 @@ final class Ship_Modal
             wp_die('日別集計を読み込めないため、CSVを出力できませんでした。データベースを確認してください。', 'Ship Modal', array('response' => 500));
         }
         $labels = $this->stats_event_labels();
+        // 現行の画像専用モードではページャーを使用しないため、CSVにも出力しない。
+        // 将来モードを戻した場合は既存のページャー集計をそのまま出力できるよう、保存データは保持する。
+        if ($this->is_image_only_mode()) {
+            unset($labels['page_view']);
+        }
         $title = get_the_title($post_id);
         $period_totals = array_fill_keys(array_keys($labels), 0);
 
@@ -2415,7 +2423,11 @@ final class Ship_Modal
         fwrite($output, "\xEF\xBB\xBF");
         $this->write_csv_row($output, array('モーダルID', 'タイトル', '日付', 'イベント', '件数'));
         foreach ($rows as $row) {
-            $event_label = isset($labels[$row->event_name]) ? $labels[$row->event_name] : $row->event_name;
+            // 画像専用モードで保持している過去のページャー行もCSVへは出さない。
+            if (! isset($labels[$row->event_name])) {
+                continue;
+            }
+            $event_label = $labels[$row->event_name];
             $count = (int) $row->event_count;
             if (isset($period_totals[$row->event_name])) {
                 $period_totals[$row->event_name] += $count;
@@ -2424,6 +2436,9 @@ final class Ship_Modal
         }
         if ($from === '' && $to === '') {
             foreach ($this->counter_meta_keys() as $event => $meta_key) {
+                if (! isset($period_totals[$event])) {
+                    continue;
+                }
                 $legacy_count = max(0, (int) get_post_meta($post_id, $meta_key, true) - $period_totals[$event]);
                 if ($legacy_count > 0) {
                     $this->write_csv_row($output, array($post_id, $title, '日別導入前', $labels[$event], $legacy_count));
@@ -2524,6 +2539,35 @@ final class Ship_Modal
         if ($claims_exists === $claims_table) {
             $wpdb->delete($claims_table, array('modal_id' => absint($post_id)), array('%d'));
         }
+    }
+
+    /**
+     * Ship Modalを複製した直後に、累計・日別の計測を引き継がないようにする。
+     *
+     * Yoast Duplicate Postは投稿メタをコピーした後に
+     * duplicate_post_after_duplicatedを実行するため、ここで新しい投稿IDだけを
+     * 対象に初期化する。保存データの形式を将来戻せるよう、メタキー自体は残して0にする。
+     *
+     * @param int     $new_post_id 複製先の投稿ID。
+     * @param WP_Post $source_post 複製元の投稿。
+     * @param string  $status      複製先のステータス。
+     * @param string  $post_type  複製元の投稿タイプ。
+     * @return void
+     */
+    public function reset_duplicated_modal_stats($new_post_id, $source_post = null, $status = '', $post_type = '')
+    {
+        $new_post_id = absint($new_post_id);
+        if (! $new_post_id || 'ship_modal' !== get_post_type($new_post_id)) {
+            return;
+        }
+
+        foreach ($this->counter_meta_keys() as $meta_key) {
+            update_post_meta($new_post_id, $meta_key, 0);
+        }
+
+        // 通常は日別テーブルの行は複製されないが、万一同じIDで作成されていた場合も除去する。
+        $this->delete_modal_stats($new_post_id);
+        wp_cache_delete($new_post_id, 'post_meta');
     }
 
     public function render_stats_reset_notice()
