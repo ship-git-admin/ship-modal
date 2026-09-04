@@ -3,7 +3,7 @@ Contributors: shipinc
 Requires at least: 4.8
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.7.0
+Stable tag: 1.7.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -24,6 +24,10 @@ HTML、画像、画像＋テキスト、ページャー、表示期間、表示�
 3. 「モーダル」から内容と表示設定を登録します。
 
 == Changelog ==
+
+= 1.7.1 =
+* スマホ用画像の切り替え幅を767px以下に統一。
+* 画像フィールドを「基本画像」「スマホ用画像」「共通alt」の順に整理。
 
 = 1.7.0 =
 * 基本画像のalt入力欄を追加。

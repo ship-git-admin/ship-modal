@@ -734,7 +734,7 @@ final class Ship_Modal
                     <input type="hidden" name="ship_modal_image_id" id="ship-modal-image-id" value="<?php echo esc_attr($image_id); ?>">
                     <div id="ship-modal-image-preview"><?php if ($image_url) : ?><img src="<?php echo esc_url($image_url); ?>" alt="" style="max-width:100%;height:auto;"><?php endif; ?></div>
                     <p><button type="button" class="button" id="ship-modal-select-image">画像を選択</button> <button type="button" class="button" id="ship-modal-remove-image">削除</button></p>
-                    <label for="ship-modal-image-alt">画像のalt</label><input type="text" class="widefat" name="ship_modal_image_alt" id="ship-modal-image-alt" value="<?php echo esc_attr($image_alt); ?>" placeholder="画像の内容を説明（任意）"><p class="description">基本はこの画像1枚だけで運用できます。altを空欄にするとモーダルタイトルを使用します。</p>
+                    <p class="description">基本はこの画像1枚だけで運用できます。スマホ用画像が不要なら、ここだけ設定してください。</p>
                 </td>
             </tr>
             <tr class="ship-modal-single-image-row">
@@ -744,7 +744,14 @@ final class Ship_Modal
                     <input type="hidden" name="ship_modal_image_id_mobile" id="ship-modal-image-id-mobile" value="<?php echo esc_attr($mobile_image_id); ?>">
                     <div id="ship-modal-image-preview-mobile"><?php if ($mobile_image_url) : ?><img src="<?php echo esc_url($mobile_image_url); ?>" alt="" style="max-width:100%;height:auto;"><?php endif; ?></div>
                     <p><button type="button" class="button" id="ship-modal-select-image-mobile">画像を選択</button> <button type="button" class="button" id="ship-modal-remove-image-mobile">削除</button></p>
-                    <p class="description">スマホ幅（782px以下）で切り替えます。未設定なら基本画像をそのまま使用します。altは基本画像と共通です。</p>
+                    <p class="description">スマホ幅（767px以下）で切り替えます。未設定なら基本画像をそのまま使用します。</p>
+                </td>
+            </tr>
+            <tr class="ship-modal-single-image-alt-row">
+                <th><label for="ship-modal-image-alt">画像のalt</label></th>
+                <td>
+                    <input type="text" class="widefat" name="ship_modal_image_alt" id="ship-modal-image-alt" value="<?php echo esc_attr($image_alt); ?>" placeholder="画像の内容を説明（任意）">
+                    <p class="description">基本画像・スマホ用画像で共通です。空欄にするとモーダルタイトルをaltに使用します。</p>
                 </td>
             </tr>
             <tr class="ship-modal-single-image-row"><th><label for="ship-modal-link_url">クリック先URL</label></th><td><input type="url" class="widefat" name="ship_modal_link_url" id="ship-modal-link_url" value="<?php echo esc_attr($link_url); ?>" placeholder="https://example.com/"><br><label><input type="checkbox" name="ship_modal_link_new_tab" value="1" <?php checked($link_new_tab, true); ?>> 別タブで開く</label><p class="description">空欄なら画像はリンクになりません。</p></td></tr>
@@ -1411,7 +1418,7 @@ final class Ship_Modal
                 $mobile_srcset = wp_get_attachment_image_url($mobile_image_id, 'full');
             }
             if ($mobile_srcset) {
-                $image = '<picture><source media="(max-width: 782px)" srcset="' . esc_attr($mobile_srcset) . '">' . $image . '</picture>';
+                $image = '<picture><source media="(max-width: 767px)" srcset="' . esc_attr($mobile_srcset) . '">' . $image . '</picture>';
             }
         }
         $link_url = esc_url($link_url);
