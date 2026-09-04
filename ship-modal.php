@@ -30,7 +30,7 @@ require_once SHIP_MODAL_DIR . 'includes/class-ship-modal.php';
 
 Ship_Modal::instance();
 
-// GitHubのRelease／タグを優先し、mainはフォールバックとして参照する自動アップデータ。
+// GitHubのRelease／タグだけを配布元にする自動アップデータ。
 if (file_exists(SHIP_MODAL_DIR . 'lib/plugin-update-checker/plugin-update-checker.php')) {
     require_once SHIP_MODAL_DIR . 'lib/plugin-update-checker/plugin-update-checker.php';
 
@@ -40,4 +40,18 @@ if (file_exists(SHIP_MODAL_DIR . 'lib/plugin-update-checker/plugin-update-checke
         'ship-modal'
     );
     $ship_modal_update_checker->setBranch('main');
+    // 可変なmainブランチを直接配布せず、不変のRelease／タグだけを検出する。
+    $ship_modal_update_checker->addFilter('vcs_update_detection_strategies', function ($strategies) {
+        $release_strategies = array();
+        foreach (array('latest_release', 'latest_tag') as $strategy_name) {
+            if (isset($strategies[$strategy_name])) {
+                $release_strategies[$strategy_name] = $strategies[$strategy_name];
+            }
+        }
+        return $release_strategies;
+    });
+    if (method_exists($ship_modal_update_checker->getVcsApi(), 'enableReleaseAssets')) {
+        // 命名規則に合うRelease Assetがあれば優先する。無い場合はタグのZIPへ戻す。
+        $ship_modal_update_checker->getVcsApi()->enableReleaseAssets('/^ship-modal(?:-[0-9.]+)?\.zip$/i');
+    }
 }

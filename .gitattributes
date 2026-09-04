@@ -1,0 +1,9 @@
+# 本番配布物には開発用の実行スクリプト・サンプルを含めない。
+lib/plugin-update-checker/build/ export-ignore
+lib/plugin-update-checker/examples/ export-ignore
+lib/plugin-update-checker/README.md export-ignore
+lib/plugin-update-checker/README.txt export-ignore
+lib/plugin-update-checker/composer.json export-ignore
+lib/plugin-update-checker/phpcs.xml export-ignore
+.github/ export-ignore
+.backups/ export-ignore

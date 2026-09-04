@@ -1,0 +1,34 @@
+name: Build release asset
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - name: Build clean plugin ZIP
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -eu
+          mkdir -p dist
+          git archive --format=tar --prefix=ship-modal/ "$RELEASE_TAG" | tar -x -C dist
+          test ! -e dist/ship-modal/lib/plugin-update-checker/build/bump-version.php
+          (cd dist && zip -qr "../ship-modal-${RELEASE_TAG#v}.zip" ship-modal)
+
+      - name: Upload release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" "ship-modal-${RELEASE_TAG#v}.zip" --clobber

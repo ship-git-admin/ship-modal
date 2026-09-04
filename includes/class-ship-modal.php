@@ -942,7 +942,7 @@ final class Ship_Modal
                     <p class="description">基本画像・スマホ用画像で共通です。空欄にするとモーダルタイトルをaltに使用します。</p>
                 </td>
             </tr>
-            <tr class="ship-modal-single-image-row"><th><label for="ship-modal-link_url">クリック先URL</label></th><td><input type="url" class="widefat" name="ship_modal_link_url" id="ship-modal-link_url" value="<?php echo esc_attr($link_url); ?>" placeholder="https://example.com/"><br><label><input type="checkbox" name="ship_modal_link_new_tab" value="1" <?php checked($link_new_tab, true); ?>> 別タブで開く</label><p class="description">空欄なら画像はリンクになりません。</p></td></tr>
+            <tr class="ship-modal-single-image-row"><th><label for="ship-modal-link_url">クリック先URL</label></th><td><input type="url" class="widefat" name="ship_modal_link_url" id="ship-modal-link_url" value="<?php echo esc_attr($link_url); ?>" placeholder="https://example.com/"><br><input type="hidden" name="ship_modal_link_new_tab" value="0"><label><input type="checkbox" name="ship_modal_link_new_tab" value="1" <?php checked($link_new_tab, true); ?>> 別タブで開く</label><p class="description">空欄なら画像はリンクになりません。</p></td></tr>
             <?php if (! $image_only_mode) : ?>
             <tr class="ship-modal-hybrid-image-row"><th><label for="ship-modal-image_position">画像の位置</label></th><td><?php $this->select('image_position', $image_position, array('top' => '上', 'left' => '左', 'right' => '右')); ?></td></tr>
             <tr class="ship-modal-buttons-row"><th>ボタン</th><td><p class="description">任意・最大3個。1行あたりの文字数と行数に上限があります。</p><?php $this->render_button_fields($buttons, 3, 'ship_modal_buttons'); ?></td></tr>
@@ -1279,7 +1279,13 @@ final class Ship_Modal
         delete_post_meta($post_id, '_ship_modal_form_state_' . get_current_user_id());
         delete_post_meta($post_id, '_ship_modal_errors_' . get_current_user_id());
 
+        $schedule_warnings = array();
+        $schedule_values = $this->normalize_schedule_values($post_id, $schedule_warnings);
         foreach (array('link_url', 'trigger_text', 'start_at', 'end_at') as $field) {
+            if (isset($schedule_values[$field])) {
+                update_post_meta($post_id, '_ship_modal_' . $field, $schedule_values[$field]);
+                continue;
+            }
             $value = isset($_POST['ship_modal_' . $field])
                 ? wp_unslash($_POST['ship_modal_' . $field])
                 : $this->meta($post_id, $field, '');
@@ -1287,6 +1293,12 @@ final class Ship_Modal
                 ? $this->normalize_button_label($value)
                 : sanitize_text_field($value);
             update_post_meta($post_id, '_ship_modal_' . $field, $value);
+        }
+        $schedule_warning_key = 'ship_modal_warnings_' . get_current_user_id() . '_' . $post_id;
+        if ($schedule_warnings) {
+            set_transient($schedule_warning_key, $schedule_warnings, 60);
+        } else {
+            delete_transient($schedule_warning_key);
         }
         // 画像専用モード中は、画面から隠している内容データを一切上書きしない。
         // 将来フラグをfalseへ戻した時に、既存のHTML等をそのまま再編集できるようにする。
@@ -1302,9 +1314,14 @@ final class Ship_Modal
         if (! $image_only_mode || isset($_POST['ship_modal_image_alt'])) {
             update_post_meta($post_id, '_ship_modal_image_alt', $image_alt);
         }
-        $link_new_tab = isset($_POST['ship_modal_link_new_tab'])
-            ? '1'
-            : $this->meta($post_id, 'link_new_tab', '0');
+        $raw_link_new_tab = isset($_POST['ship_modal_link_new_tab']) ? wp_unslash($_POST['ship_modal_link_new_tab']) : null;
+        if (is_array($raw_link_new_tab)) {
+            $link_new_tab = in_array('1', array_map('strval', $raw_link_new_tab), true) ? '1' : '0';
+        } elseif (null !== $raw_link_new_tab) {
+            $link_new_tab = '1' === (string) $raw_link_new_tab ? '1' : '0';
+        } else {
+            $link_new_tab = $this->meta($post_id, 'link_new_tab', '0');
+        }
         update_post_meta($post_id, '_ship_modal_link_new_tab', '1' === $link_new_tab ? '1' : '0');
         $trigger_bg_color = isset($_POST['ship_modal_trigger_bg_color'])
             ? sanitize_hex_color(wp_unslash($_POST['ship_modal_trigger_bg_color']))
@@ -1377,13 +1394,23 @@ final class Ship_Modal
                 delete_post_meta(absint($_GET['post']), '_ship_modal_errors_' . get_current_user_id());
             }
         }
-        if (! is_array($errors) || ! $errors) {
+        if (is_array($errors) && $errors) {
+            delete_transient($key);
+            echo '<div class="notice notice-error"><p><strong>モーダルを保存できませんでした。</strong></p><ul>';
+            foreach ($errors as $error) {
+                echo '<li>' . esc_html($error) . '</li>';
+            }
+            echo '</ul></div>';
+        }
+        $warning_key = 'ship_modal_warnings_' . get_current_user_id() . '_' . absint($_GET['post']);
+        $warnings = get_transient($warning_key);
+        if (! is_array($warnings) || ! $warnings) {
             return;
         }
-        delete_transient($key);
-        echo '<div class="notice notice-error"><p><strong>モーダルを保存できませんでした。</strong></p><ul>';
-        foreach ($errors as $error) {
-            echo '<li>' . esc_html($error) . '</li>';
+        delete_transient($warning_key);
+        echo '<div class="notice notice-warning"><p><strong>一部の入力を確認してください。</strong></p><ul>';
+        foreach ($warnings as $warning) {
+            echo '<li>' . esc_html($warning) . '</li>';
         }
         echo '</ul></div>';
     }
@@ -1550,6 +1577,46 @@ final class Ship_Modal
         return is_numeric($gmt_timestamp) ? (int) $gmt_timestamp : 0;
     }
 
+    private function normalize_schedule_value($value, $fallback, $label, &$warnings)
+    {
+        $value = sanitize_text_field((string) $value);
+        if ($value === '') {
+            return '';
+        }
+        if ($this->schedule_timestamp($value)) {
+            return $value;
+        }
+        $warnings[] = $label . 'の形式が正しくないため、保存前の値を維持しました。';
+        return $fallback;
+    }
+
+    private function normalize_schedule_values($post_id, &$warnings)
+    {
+        $stored = array(
+            'start_at' => sanitize_text_field((string) $this->meta($post_id, 'start_at', '')),
+            'end_at' => sanitize_text_field((string) $this->meta($post_id, 'end_at', '')),
+        );
+        foreach ($stored as $field => $value) {
+            if ($value !== '' && ! $this->schedule_timestamp($value)) {
+                $stored[$field] = '';
+            }
+        }
+        $values = array();
+        foreach (array('start_at', 'end_at') as $field) {
+            $label = 'start_at' === $field ? '開始日時' : '終了日時';
+            $raw = isset($_POST['ship_modal_' . $field]) ? wp_unslash($_POST['ship_modal_' . $field]) : $stored[$field];
+            $values[$field] = $this->normalize_schedule_value($raw, $stored[$field], $label, $warnings);
+        }
+        if ($values['start_at'] !== '' && $values['end_at'] !== '' && $this->schedule_timestamp($values['start_at']) > $this->schedule_timestamp($values['end_at'])) {
+            $warnings[] = '開始日時が終了日時より後のため、保存前の期間を維持しました。';
+            $values = $stored;
+            if ($values['start_at'] !== '' && $values['end_at'] !== '' && $this->schedule_timestamp($values['start_at']) > $this->schedule_timestamp($values['end_at'])) {
+                $values = array('start_at' => '', 'end_at' => '');
+            }
+        }
+        return $values;
+    }
+
     private function is_scope_visible($post_id)
     {
         $scope = $this->meta($post_id, 'scope', 'front');
@@ -1593,7 +1660,7 @@ final class Ship_Modal
     {
         // ショートコードがthe_content以外（テンプレート・ウィジェット等）から
         // 呼ばれてもCSSがwp_head後の遅延読込にならないよう、スタイルは先に登録する。
-        wp_enqueue_style('ship-modal', SHIP_MODAL_URL . 'assets/css/modal.css', array(), SHIP_MODAL_VERSION);
+        wp_register_style('ship-modal', SHIP_MODAL_URL . 'assets/css/modal.css', array(), SHIP_MODAL_VERSION);
         $has_sitewide = false;
         foreach ($this->active_modal_ids() as $post_id) {
             if ($this->is_scope_visible($post_id) && ! $this->is_schedule_expired($post_id)) {
@@ -1609,6 +1676,7 @@ final class Ship_Modal
         if (! $has_sitewide && ! $has_content_shortcode) {
             return;
         }
+        wp_enqueue_style('ship-modal');
         wp_enqueue_script('ship-modal', SHIP_MODAL_URL . 'assets/js/modal.js', array(), SHIP_MODAL_VERSION, true);
         wp_localize_script('ship-modal', 'ShipModalConfig', $this->front_script_config());
     }
@@ -1623,9 +1691,123 @@ final class Ship_Modal
         );
     }
 
+    private function event_token_ttl()
+    {
+        $default = defined('DAY_IN_SECONDS') ? 7 * DAY_IN_SECONDS : 604800;
+        $ttl = (int) apply_filters('ship_modal_event_token_ttl', $default);
+        return max(300, min(30 * (defined('DAY_IN_SECONDS') ? DAY_IN_SECONDS : 86400), $ttl));
+    }
+
     private function event_token($post_id)
     {
-        return hash_hmac('sha256', (string) absint($post_id), wp_salt('nonce'));
+        // 公開HTMLへ出す値なので、投稿IDだけの固定トークンではなく発行時刻を署名する。
+        $issued_at = time();
+        $signature = hash_hmac('sha256', absint($post_id) . '|' . $issued_at, wp_salt('nonce'));
+        return $issued_at . '.' . $signature;
+    }
+
+    private function verify_event_token($post_id, $token)
+    {
+        $token = is_string($token) ? trim($token) : '';
+        if (preg_match('/^(\d{10})\.([a-f0-9]{64})$/i', $token, $matches)) {
+            $issued_at = (int) $matches[1];
+            $now = time();
+            // サーバー間の時計ずれを少しだけ許容し、古いページの再送は期限切れにする。
+            if ($issued_at > $now + 300 || $issued_at < $now - $this->event_token_ttl()) {
+                return false;
+            }
+            $expected = hash_hmac('sha256', absint($post_id) . '|' . $issued_at, wp_salt('nonce'));
+            return hash_equals($expected, strtolower($matches[2]));
+        }
+
+        // 更新直後に残るキャッシュ済みHTMLとの互換用。新しいJSはevent_idと
+        // レート制限を必ず併用するため、固定トークンだけで無制限には受け付けない。
+        $legacy = hash_hmac('sha256', (string) absint($post_id), wp_salt('nonce'));
+        return $token !== '' && hash_equals($legacy, $token);
+    }
+
+    private function normalize_event_id($value)
+    {
+        $value = is_scalar($value) ? trim(sanitize_text_field((string) $value)) : '';
+        return preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]{15,79}$/', $value) ? $value : '';
+    }
+
+    private function event_claim_key($post_id, $event, $event_id)
+    {
+        return 'ship_modal_event_' . substr(hash_hmac('sha256', absint($post_id) . '|' . $event . '|' . $event_id, wp_salt('auth')), 0, 40);
+    }
+
+    /**
+     * イベントIDを短時間だけ予約する。
+     * 戻り値: string=予約済み、false=重複、null=キャッシュ保存失敗。
+     */
+    private function claim_event_id($post_id, $event, $event_id)
+    {
+        if ($event_id === '') {
+            return '';
+        }
+        $key = $this->event_claim_key($post_id, $event, $event_id);
+        $ttl = max(300, min(2 * (defined('HOUR_IN_SECONDS') ? HOUR_IN_SECONDS : 3600), $this->event_token_ttl()));
+        $cache_claimed = false;
+        if (function_exists('wp_using_ext_object_cache') && wp_using_ext_object_cache()) {
+            if (! wp_cache_add($key, 1, 'ship_modal_event_dedup', $ttl)) {
+                return false;
+            }
+            $cache_claimed = true;
+        }
+        if (false !== get_transient($key)) {
+            if ($cache_claimed) {
+                wp_cache_delete($key, 'ship_modal_event_dedup');
+            }
+            return false;
+        }
+        if (false === set_transient($key, 1, $ttl)) {
+            if ($cache_claimed) {
+                wp_cache_delete($key, 'ship_modal_event_dedup');
+            }
+            return null;
+        }
+        return $key;
+    }
+
+    private function release_event_claim($key)
+    {
+        if (! is_string($key) || $key === '') {
+            return;
+        }
+        delete_transient($key);
+        if (function_exists('wp_using_ext_object_cache') && wp_using_ext_object_cache()) {
+            wp_cache_delete($key, 'ship_modal_event_dedup');
+        }
+    }
+
+    private function event_client_fingerprint()
+    {
+        $ip = isset($_SERVER['REMOTE_ADDR']) ? trim((string) $_SERVER['REMOTE_ADDR']) : '';
+        $user_agent = isset($_SERVER['HTTP_USER_AGENT']) ? substr(trim((string) $_SERVER['HTTP_USER_AGENT']), 0, 200) : '';
+        if ($ip === '' && $user_agent === '') {
+            return '';
+        }
+        // 生のIPやUAは保存せず、サイト固有ソルトで一方向ハッシュ化する。
+        return hash_hmac('sha256', $ip . '|' . $user_agent, wp_salt('nonce'));
+    }
+
+    private function event_is_rate_limited($post_id, $event)
+    {
+        $fingerprint = $this->event_client_fingerprint();
+        if ($fingerprint === '') {
+            return false;
+        }
+        $limit = (int) apply_filters('ship_modal_event_rate_limit', 60);
+        $limit = max(10, min(600, $limit));
+        $bucket = gmdate('YmdHi');
+        $key = 'ship_modal_rate_' . substr(hash_hmac('sha256', absint($post_id) . '|' . $event . '|' . $fingerprint . '|' . $bucket, wp_salt('auth')), 0, 40);
+        $count = (int) get_transient($key);
+        if ($count >= $limit) {
+            return true;
+        }
+        set_transient($key, $count + 1, 120);
+        return false;
     }
 
     private function render_image_content($image_id, $link_url, $alt, $new_tab = false, $mobile_image_id = 0)
@@ -1640,10 +1822,41 @@ final class Ship_Modal
         if (! $image_id) {
             return '';
         }
-        // モーダルは初期状態が hidden のため、lazy + sizes=auto の仮サイズ計算を使わず実寸を確定させる。
-        $image = wp_get_attachment_image($image_id, 'full', false, array('class' => 'ship-modal__image', 'alt' => $alt, 'loading' => 'eager', 'fetchpriority' => 'low'));
+        // モーダルは初期状態がhiddenのため、画像本体は開く直前まで取得しない。
+        // width/heightは残してレイアウトシフトを防ぎ、JSでdata属性をsrcへ戻す。
+        $image = wp_get_attachment_image($image_id, 'full', false, array('class' => 'ship-modal__image', 'alt' => $alt, 'loading' => 'lazy', 'fetchpriority' => 'low'));
         if (! $image) {
             return '';
+        }
+        $image_url = wp_get_attachment_image_url($image_id, 'full');
+        if ($image_url) {
+            $placeholder = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
+            $image = preg_replace(
+                '/\ssrc=("|\')[^"\']*\1/i',
+                ' src="' . esc_attr($placeholder) . '" data-ship-modal-src="' . esc_attr($image_url) . '"',
+                $image,
+                1
+            );
+            if (function_exists('wp_get_attachment_image_srcset')) {
+                $srcset = wp_get_attachment_image_srcset($image_id, 'full');
+                if ($srcset) {
+                    $image = preg_replace(
+                        '/\ssrcset=("|\')[^"\']*\1/i',
+                        ' data-ship-modal-srcset="' . esc_attr($srcset) . '"',
+                        $image,
+                        1
+                    );
+                }
+            }
+            $image = preg_replace(
+                '/\ssizes=("|\')[^"\']*\1/i',
+                ' data-ship-modal-sizes="100vw"',
+                $image,
+                1
+            );
+            if (strpos($image, 'data-ship-modal-src=') === false) {
+                $image = preg_replace('/<img\s/i', '<img data-ship-modal-src="' . esc_attr($image_url) . '" ', $image, 1);
+            }
         }
         if ($mobile_image_id && $mobile_image_id !== $image_id) {
             $mobile_srcset = function_exists('wp_get_attachment_image_srcset')
@@ -1653,7 +1866,7 @@ final class Ship_Modal
                 $mobile_srcset = wp_get_attachment_image_url($mobile_image_id, 'full');
             }
             if ($mobile_srcset) {
-                $image = '<picture><source media="(max-width: 767px)" srcset="' . esc_attr($mobile_srcset) . '">' . $image . '</picture>';
+                $image = '<picture><source media="(max-width: 767px)" data-ship-modal-srcset="' . esc_attr($mobile_srcset) . '">' . $image . '</picture>';
             }
         }
         $link_url = esc_url($link_url);
@@ -1919,7 +2132,7 @@ final class Ship_Modal
             wp_send_json_error(array('message' => 'invalid request'), 400);
         }
         $submitted_token = isset($_POST['token']) ? sanitize_text_field(wp_unslash($_POST['token'])) : '';
-        $valid_token = $submitted_token !== '' && hash_equals($this->event_token($post_id), $submitted_token);
+        $valid_token = $submitted_token !== '' && $this->verify_event_token($post_id, $submitted_token);
         $legacy_nonce = isset($_POST['nonce']) ? sanitize_text_field(wp_unslash($_POST['nonce'])) : '';
         $valid_legacy_nonce = $legacy_nonce !== '' && wp_verify_nonce($legacy_nonce, 'ship_modal_event');
         if (! $valid_token && ! $valid_legacy_nonce) {
@@ -1927,6 +2140,15 @@ final class Ship_Modal
         }
         if (! $this->is_in_schedule($post_id)) {
             wp_send_json_success(array('recorded' => false, 'reason' => 'outside_schedule'));
+        }
+        if ($this->event_is_rate_limited($post_id, $event)) {
+            wp_send_json_success(array('recorded' => false, 'reason' => 'rate_limited'));
+        }
+        $event_id = isset($_POST['event_id']) ? $this->normalize_event_id(wp_unslash($_POST['event_id'])) : '';
+        $event_claim = $this->claim_event_id($post_id, $event, $event_id);
+        if (false === $event_claim) {
+            // sendBeacon/fetchの再送や、同じリクエストのリトライは一度だけ集計する。
+            wp_send_json_success(array('recorded' => false, 'reason' => 'duplicate'));
         }
         $keys = array(
             'impression' => '_ship_modal_impressions',
@@ -1939,6 +2161,7 @@ final class Ship_Modal
         // 集計画面・CSV用の日別データも同時に保存する。既存のメタ集計は互換性のため残す。
         global $wpdb;
         if (! $this->maybe_upgrade_stats_table()) {
+            $this->release_event_claim($event_claim);
             wp_send_json_error(array('message' => 'stats table is unavailable'), 500);
         }
         $daily_query = $wpdb->prepare(
@@ -1950,6 +2173,7 @@ final class Ship_Modal
         $daily_recorded = false;
         for ($attempt = 0; $attempt < 2; $attempt++) {
             if (false === $wpdb->query('START TRANSACTION')) {
+                $this->release_event_claim($event_claim);
                 wp_send_json_error(array('message' => 'could not start transaction'), 500);
             }
             if (false !== $wpdb->query($daily_query)) {
@@ -1961,19 +2185,23 @@ final class Ship_Modal
                 delete_option('ship_modal_stats_db_version');
                 delete_transient('ship_modal_stats_schema_checked');
                 if (! $this->maybe_upgrade_stats_table()) {
+                    $this->release_event_claim($event_claim);
                     wp_send_json_error(array('message' => 'stats table repair failed'), 500);
                 }
             }
         }
         if (! $daily_recorded) {
+            $this->release_event_claim($event_claim);
             wp_send_json_error(array('message' => 'could not record event'), 500);
         }
         if (! $this->increment_counter_meta($post_id, $key)) {
             $wpdb->query('ROLLBACK');
+            $this->release_event_claim($event_claim);
             wp_send_json_error(array('message' => 'could not update event total'), 500);
         }
         if (false === $wpdb->query('COMMIT')) {
             $wpdb->query('ROLLBACK');
+            $this->release_event_claim($event_claim);
             wp_send_json_error(array('message' => 'could not commit event'), 500);
         }
         wp_cache_delete(absint($post_id), 'post_meta');

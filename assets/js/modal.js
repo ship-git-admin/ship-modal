@@ -66,13 +66,49 @@
     if (modal.dataset.trigger === 'manual' && !canShow(modal)) setTriggerVisibility(modal, false);
   }
 
+  function randomEventId() {
+    // 1つのUIイベントを再送する場合も同じIDを使えるよう、trackServer内で1回だけ生成する。
+    // cryptoが使えない古いブラウザでは、時刻＋乱数のフォールバックを使う。
+    try {
+      if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+      if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+        var values = new Uint32Array(4);
+        window.crypto.getRandomValues(values);
+        return Array.prototype.map.call(values, function (value) { return value.toString(16); }).join('-');
+      }
+    } catch (e) { /* fall through to the non-cryptographic fallback */ }
+    return String(Date.now()) + '-' + String(Math.random()).slice(2);
+  }
+
+  function hydrateImages(root) {
+    if (!root) return;
+    root.querySelectorAll('[data-ship-modal-srcset]').forEach(function (source) {
+      if (!source.getAttribute('srcset')) source.setAttribute('srcset', source.getAttribute('data-ship-modal-srcset'));
+      source.removeAttribute('data-ship-modal-srcset');
+    });
+    root.querySelectorAll('img[data-ship-modal-src]').forEach(function (image) {
+      var src = image.getAttribute('data-ship-modal-src');
+      var srcset = image.getAttribute('data-ship-modal-srcset');
+      var sizes = image.getAttribute('data-ship-modal-sizes');
+      if (src) image.setAttribute('src', src);
+      if (srcset) image.setAttribute('srcset', srcset);
+      if (sizes) image.setAttribute('sizes', sizes);
+      image.removeAttribute('data-ship-modal-src');
+      image.removeAttribute('data-ship-modal-srcset');
+      image.removeAttribute('data-ship-modal-sizes');
+      image.setAttribute('loading', 'eager');
+    });
+  }
+
   function trackServer(modal, event) {
     if (!modal || !config.ajaxUrl || (!modal.dataset.eventToken && !config.nonce)) return;
+    var eventId = randomEventId();
     var payload = [
       'action=ship_modal_event',
       'token=' + encodeURIComponent(modal.dataset.eventToken || ''),
       'modal_id=' + encodeURIComponent(modal.dataset.postId || ''),
-      'event=' + encodeURIComponent(event)
+      'event=' + encodeURIComponent(event),
+      'event_id=' + encodeURIComponent(eventId)
     ];
     if (config.nonce) payload.push('nonce=' + encodeURIComponent(config.nonce));
     payload = payload.join('&');
@@ -233,6 +269,8 @@
     document.body.classList.add('ship-modal-open');
     showPage(modal, 0, false);
     var content = modal.querySelector('.ship-modal__content');
+    var pages = modal.querySelector('.ship-modal__pages');
+    hydrateImages(pages ? pages.querySelector('.ship-modal__page.is-active') : content);
     if (content) content.scrollTop = 0;
     window.requestAnimationFrame(function () {
       if (activeModal !== modal || modal.hidden || modal.classList.contains('is-closing')) return;
@@ -294,6 +332,7 @@
     if (next) next.disabled = nextIndex === panels.length - 1;
     var status = container.querySelector('[data-ship-modal-page-status]');
     if (status) status.textContent = (nextIndex + 1) + ' / ' + panels.length + 'ページ';
+    hydrateImages(panels[nextIndex]);
     if (trackChange !== false && nextIndex !== previousIndex) track(modal, 'page_view', { ship_modal_action: 'page_view' });
   }
 
