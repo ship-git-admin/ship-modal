@@ -1129,8 +1129,7 @@ final class Ship_Modal
             if (! is_array($button)) {
                 continue;
             }
-            $label = isset($button['label']) ? wp_kses($button['label'], array('br' => array())) : '';
-            $label = preg_replace('/\s*<br\s*\/?>\s*/i', '<br>', trim($label));
+            $label = isset($button['label']) ? $this->normalize_button_label($button['label']) : '';
             $label_text = trim(wp_strip_all_tags($label));
             $url = isset($button['url']) ? esc_url_raw($button['url']) : '';
             $action = isset($button['action']) && 'close' === $button['action'] ? 'close' : 'link';

@@ -30,7 +30,7 @@ require_once SHIP_MODAL_DIR . 'includes/class-ship-modal.php';
 
 Ship_Modal::instance();
 
-// GitHubのmainブランチを参照する自動アップデータ。
+// GitHubのRelease／タグを優先し、mainはフォールバックとして参照する自動アップデータ。
 if (file_exists(SHIP_MODAL_DIR . 'lib/plugin-update-checker/plugin-update-checker.php')) {
     require_once SHIP_MODAL_DIR . 'lib/plugin-update-checker/plugin-update-checker.php';
 
@@ -40,9 +40,4 @@ if (file_exists(SHIP_MODAL_DIR . 'lib/plugin-update-checker/plugin-update-checke
         'ship-modal'
     );
     $ship_modal_update_checker->setBranch('main');
-    // main/masterはPUC既定で古いRelease・tagが優先されるため、
-    // このプラグインでは常にmainブランチのVersionヘッダーを正とする。
-    $ship_modal_update_checker->addFilter('vcs_update_detection_strategies', function ($strategies) {
-        return isset($strategies['branch']) ? array('branch' => $strategies['branch']) : $strategies;
-    });
 }

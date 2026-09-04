@@ -6,6 +6,7 @@
   var previousFocus = null;
   var pendingModals = [];
   var gtagScriptRequested = false;
+  var gtagConfiguredIds = {};
 
   function localDateKey() {
     var date = new Date();
@@ -127,6 +128,22 @@
     return payload;
   }
 
+  function analyticsUrl(url) {
+    var value = String(url || '');
+    if (!value) return '';
+    if (!/^https?:\/\//i.test(value)) {
+      var scheme = value.match(/^([a-z][a-z0-9+.-]*:)/i);
+      return scheme ? scheme[1] : value.replace(/[?#].*$/, '');
+    }
+    try {
+      var anchor = document.createElement('a');
+      anchor.href = value;
+      return anchor.protocol + '//' + anchor.host + anchor.pathname;
+    } catch (e) {
+      return value.replace(/[?#].*$/, '');
+    }
+  }
+
   function pushDataLayer(payload) {
     if (!payload) return;
     if (!window.dataLayer) window.dataLayer = [];
@@ -144,7 +161,12 @@
       window.dataLayer = window.dataLayer || [];
       window.gtag = function () { window.dataLayer.push(arguments); };
       window.gtag('js', new Date());
-      window.gtag('config', measurementId, { send_page_view: false });
+    }
+    if (measurementId && !gtagConfiguredIds[measurementId]) {
+      try {
+        window.gtag('config', measurementId, { send_page_view: false });
+        gtagConfiguredIds[measurementId] = true;
+      } catch (e) { /* analytics must never block the UI */ }
     }
     if (!hadGtag && measurementId && !gtagScriptRequested) {
       gtagScriptRequested = true;
@@ -165,6 +187,8 @@
     Object.keys(payload).forEach(function (key) {
       if (key !== 'event') parameters[key] = payload[key];
     });
+    var measurementId = String(config.ga4MeasurementId || '').trim();
+    if (measurementId) parameters.send_to = measurementId;
     try {
       window.gtag('event', payload.event, parameters);
       return true;
@@ -293,7 +317,7 @@
       track(modal, 'click', {
         ship_modal_action: action,
         ship_modal_label: link.dataset.shipModalLabel || (link.textContent || '').trim().slice(0, 80),
-        ship_modal_url: link.href || ''
+        ship_modal_url: analyticsUrl(link.href || '')
       });
     }
   });
