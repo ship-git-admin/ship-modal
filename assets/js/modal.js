@@ -6,8 +6,27 @@
   var previousFocus = null;
   var pendingModals = [];
   var gtagScriptRequested = false;
+  var gtagScriptState = 'idle';
+  var gtagOwnedByShipModal = false;
   var gtagConfiguredIds = {};
   var backgroundInertState = [];
+  var ga4ConsentGranted = config.ga4Enabled !== false;
+
+  function analyticsConsentGranted() {
+    return ga4ConsentGranted && config.ga4Enabled !== false;
+  }
+
+  function setAnalyticsConsent(granted) {
+    ga4ConsentGranted = granted === true || granted === 1 || granted === '1' || granted === 'true' || granted === 'granted';
+    // フルページキャッシュ下でもCMPの変更を以後のイベントへ反映する。
+    config.ga4Enabled = ga4ConsentGranted;
+  }
+
+  // CMPからページ表示後に呼び出せるランタイムAPI。既存の名前空間は保持する。
+  var consentApi = window.ShipModalConsent || {};
+  consentApi.setAnalyticsConsent = setAnalyticsConsent;
+  consentApi.getAnalyticsConsent = analyticsConsentGranted;
+  window.ShipModalConsent = consentApi;
 
   function localDateKey() {
     var date = new Date();
@@ -236,14 +255,18 @@
   }
 
   function ensureGtag() {
-    if (config.ga4Enabled === false) return false;
+    if (!analyticsConsentGranted()) return false;
+    if (gtagScriptState === 'error') return false;
     var measurementId = String(config.ga4MeasurementId || '').trim();
     var hadGtag = typeof window.gtag === 'function';
     if (!hadGtag && !measurementId) return false;
     if (!hadGtag) {
+      gtagOwnedByShipModal = true;
       window.dataLayer = window.dataLayer || [];
       window.gtag = function () { window.dataLayer.push(arguments); };
       window.gtag('js', new Date());
+    } else {
+      gtagScriptState = 'ready';
     }
     if (measurementId && !gtagConfiguredIds[measurementId]) {
       try {
@@ -253,11 +276,14 @@
     }
     if (!hadGtag && measurementId && !gtagScriptRequested) {
       gtagScriptRequested = true;
+      gtagScriptState = 'loading';
       if (!document.getElementById('ship-modal-ga4-script')) {
         var script = document.createElement('script');
         script.id = 'ship-modal-ga4-script';
         script.async = true;
         script.src = 'https://www.googletagmanager.com/gtag/js?id=' + encodeURIComponent(measurementId);
+        script.onload = function () { gtagScriptState = 'ready'; };
+        script.onerror = function () { gtagScriptState = 'error'; };
         (document.head || document.documentElement).appendChild(script);
       }
     }
@@ -274,6 +300,7 @@
     if (measurementId) parameters.send_to = measurementId;
     try {
       window.gtag('event', payload.event, parameters);
+      if (gtagOwnedByShipModal && 'loading' === gtagScriptState) return 'queued';
       return true;
     } catch (e) {
       return false;
@@ -281,10 +308,14 @@
   }
 
   function sendAnalytics(modal, eventName, details) {
+    // 同意がない間はGoogleタグ・GTM向けdataLayerの双方へ送信しない。
+    // 内部計測(trackServer)は別系統のため、track()側では継続する。
+    if (!analyticsConsentGranted()) return;
     var payload = analyticsPayload(modal, eventName, details);
     if (!payload) return;
     var transport = config.ga4Transport || 'auto';
-    if (transport !== 'datalayer' && pushGtag(payload)) return;
+    var gtagResult = transport !== 'datalayer' ? pushGtag(payload) : false;
+    if (true === gtagResult || 'queued' === gtagResult) return;
     pushDataLayer(payload);
   }
 

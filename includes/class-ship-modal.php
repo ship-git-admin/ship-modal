@@ -10,6 +10,7 @@ final class Ship_Modal
     private $rendered_modal_ids = array();
     private $active_modal_ids_cache = null;
     private $stats_db_error = '';
+    private $event_claim_db_error = '';
 
     public static function instance()
     {
@@ -21,7 +22,8 @@ final class Ship_Modal
 
     private function __construct()
     {
-        add_action('init', array($this, 'maybe_upgrade_stats_table'), 1);
+        add_action('init', array($this, 'maybe_upgrade_event_claim_table'), 1);
+        add_action('init', array($this, 'maybe_upgrade_stats_table'), 2);
         // 権限を先に準備してからCPTを登録し、編集者にも管理画面を表示できるようにする。
         add_action('init', array($this, 'ensure_admin_capabilities'), 2);
         add_action('init', array($this, 'register_post_type'), 10);
@@ -47,19 +49,155 @@ final class Ship_Modal
         add_action('admin_post_ship_modal_export_stats', array($this, 'export_stats'));
         add_action('admin_post_ship_modal_reset_stats', array($this, 'reset_stats'));
         add_action('before_delete_post', array($this, 'delete_modal_stats'));
+        add_action('ship_modal_cleanup_event_claims', array($this, 'cleanup_event_claims'));
     }
 
     public static function activate()
     {
         $instance = self::instance();
         $instance->register_post_type();
+        $instance->maybe_upgrade_event_claim_table();
         $instance->maybe_upgrade_stats_table();
         flush_rewrite_rules();
     }
 
     public static function deactivate()
     {
+        wp_clear_scheduled_hook('ship_modal_cleanup_event_claims');
         flush_rewrite_rules();
+    }
+
+    /**
+     * イベントIDの重複排除テーブルを作成・更新する。
+     *
+     * イベント単位のWordPress transientは、DB負荷と同時実行時の競合を
+     * 避けられないため使用しない。claim_keyの一意キーを使ったINSERTで
+     * 予約し、期限切れの行だけ同じSQL文で再利用する。
+     */
+    public function maybe_upgrade_event_claim_table()
+    {
+        global $wpdb;
+
+        $table = $this->event_claim_table_name();
+        $version = get_option('ship_modal_event_claim_db_version', '');
+        if ('1.0' === $version && '1' === get_transient('ship_modal_event_claim_schema_checked')) {
+            $this->schedule_event_claim_cleanup();
+            return true;
+        }
+
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        $charset_collate = $wpdb->get_charset_collate();
+        $sql = "CREATE TABLE {$table} (
+            claim_key varchar(80) NOT NULL,
+            claim_token char(64) NOT NULL,
+            modal_id bigint(20) unsigned NOT NULL,
+            event_name varchar(20) NOT NULL,
+            expires_at datetime NOT NULL,
+            PRIMARY KEY  (claim_key),
+            KEY expires_at (expires_at),
+            KEY modal_id (modal_id)
+        ) {$charset_collate};";
+        dbDelta($sql);
+
+        if ($this->event_claim_table_is_valid($table)) {
+            update_option('ship_modal_event_claim_db_version', '1.0', false);
+            set_transient('ship_modal_event_claim_schema_checked', '1', 12 * HOUR_IN_SECONDS);
+            $this->event_claim_db_error = '';
+            $this->schedule_event_claim_cleanup();
+            return true;
+        }
+
+        delete_option('ship_modal_event_claim_db_version');
+        delete_transient('ship_modal_event_claim_schema_checked');
+        $this->event_claim_db_error = 'イベント重複排除テーブルを安全に準備できませんでした。';
+        return false;
+    }
+
+    private function schedule_event_claim_cleanup()
+    {
+        if (! wp_next_scheduled('ship_modal_cleanup_event_claims')) {
+            wp_schedule_event(time() + HOUR_IN_SECONDS, 'hourly', 'ship_modal_cleanup_event_claims');
+        }
+    }
+
+    private function event_claim_table_name()
+    {
+        global $wpdb;
+
+        return $wpdb->prefix . 'ship_modal_event_claims';
+    }
+
+    private function event_claim_table_is_valid($table)
+    {
+        global $wpdb;
+
+        $table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table)));
+        if ($table_exists !== $table || '' !== $wpdb->last_error) {
+            return false;
+        }
+        $columns = array();
+        foreach ((array) $wpdb->get_results("SHOW FULL COLUMNS FROM {$table}") as $column) {
+            if (isset($column->Field)) {
+                $columns[$column->Field] = $column;
+            }
+        }
+        foreach (array('claim_key', 'claim_token', 'modal_id', 'event_name', 'expires_at') as $required_column) {
+            if (! isset($columns[$required_column]) || 'NO' !== strtoupper((string) $columns[$required_column]->Null)) {
+                return false;
+            }
+        }
+        if (! preg_match('/^varchar\((\d+)\)/i', (string) $columns['claim_key']->Type, $claim_key_type) || (int) $claim_key_type[1] < 80) {
+            return false;
+        }
+        if (! preg_match('/^char\((\d+)\)/i', (string) $columns['claim_token']->Type, $claim_token_type) || (int) $claim_token_type[1] < 64) {
+            return false;
+        }
+        if (0 !== stripos((string) $columns['modal_id']->Type, 'bigint') || false === stripos((string) $columns['modal_id']->Type, 'unsigned')) {
+            return false;
+        }
+        if (! preg_match('/^varchar\((\d+)\)/i', (string) $columns['event_name']->Type, $event_name_type) || (int) $event_name_type[1] < 20) {
+            return false;
+        }
+        if ('datetime' !== strtolower((string) $columns['expires_at']->Type)) {
+            return false;
+        }
+
+        $indexes = array();
+        $index_uniqueness = array();
+        foreach ((array) $wpdb->get_results("SHOW INDEX FROM {$table}") as $index) {
+            if (! isset($index->Key_name, $index->Column_name, $index->Seq_in_index, $index->Non_unique)) {
+                continue;
+            }
+            $indexes[$index->Key_name][(int) $index->Seq_in_index] = $index->Column_name;
+            $index_uniqueness[$index->Key_name] = (int) $index->Non_unique;
+        }
+        foreach ($indexes as &$index_columns) {
+            ksort($index_columns);
+            $index_columns = array_values($index_columns);
+        }
+        unset($index_columns);
+        if (! isset($indexes['PRIMARY'], $indexes['expires_at'], $indexes['modal_id'])) {
+            return false;
+        }
+        return array('claim_key') === $indexes['PRIMARY']
+            && 0 === $index_uniqueness['PRIMARY']
+            && array('expires_at') === $indexes['expires_at']
+            && 1 === $index_uniqueness['expires_at']
+            && array('modal_id') === $indexes['modal_id']
+            && 1 === $index_uniqueness['modal_id'];
+    }
+
+    /**
+     * 期限切れのイベント予約を少量ずつ削除する。失敗しても計測処理は止めない。
+     */
+    public function cleanup_event_claims()
+    {
+        global $wpdb;
+
+        if (! $this->maybe_upgrade_event_claim_table()) {
+            return false;
+        }
+        return false !== $wpdb->query("DELETE FROM {$this->event_claim_table_name()} WHERE expires_at < UTC_TIMESTAMP() LIMIT 500");
     }
 
     /**
@@ -555,7 +693,7 @@ final class Ship_Modal
             <?php if ($invalid_measurement_id) : ?><div class="notice notice-warning"><p>GA4測定IDの形式が正しくないため、空欄として保存しました。<code>G-XXXXXXXXXX</code> の形式で入力してください。</p></div><?php endif; ?>
             <div class="notice notice-info inline ship-modal-settings-intro">
                 <p><strong>サイトごとに一度だけ設定してください。</strong></p>
-                <p>GTMでモーダル用のカスタムイベントタグを作らなくても、既存のGA4へ直接イベントを送信できます。測定IDが空欄で、ページ上に既存の <code>gtag()</code> がない場合は、従来どおり <code>dataLayer</code> へ出力します。Cookie同意管理と連動する場合は、<code>ship_modal_ga4_enabled</code> フィルターで同意済みの時だけtrueを返してください。</p>
+                <p>GTMでモーダル用のカスタムイベントタグを作らなくても、既存のGA4へ直接イベントを送信できます。測定IDが空欄で、ページ上に既存の <code>gtag()</code> がない場合は、<code>dataLayer</code> へ出力します。Cookie同意管理と連動する場合は、初期値を <code>ship_modal_ga4_enabled</code> フィルターで返し、同意が変わった時は公開ページ上で <code>window.ShipModalConsent.setAnalyticsConsent(true)</code> / <code>false</code> を呼び出してください。falseの間はGoogleタグとdataLayerの両方へ送信しません。</p>
             </div>
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
                 <input type="hidden" name="action" value="ship_modal_save_settings">
@@ -1688,7 +1826,8 @@ final class Ship_Modal
             'ajaxUrl' => admin_url('admin-ajax.php'),
             'ga4MeasurementId' => $settings['measurement_id'],
             'ga4Transport' => $settings['transport'],
-            // CMPと連携するサイトはこのフィルターで同意状態を返せる。
+            // 初期表示時のCMP判定。ページ表示後の変更は、フロント側の
+            // window.ShipModalConsent.setAnalyticsConsent()で反映する。
             // 未設定時は従来互換で送信を許可する。
             'ga4Enabled' => (bool) apply_filters('ship_modal_ga4_enabled', true),
         );
@@ -1723,10 +1862,10 @@ final class Ship_Modal
             return hash_equals($expected, strtolower($matches[2]));
         }
 
-        // 更新直後に残るキャッシュ済みHTMLとの互換用。新しいJSはevent_idと
-        // レート制限を必ず併用するため、固定トークンだけで無制限には受け付けない。
-        $legacy = hash_hmac('sha256', (string) absint($post_id), wp_salt('nonce'));
-        return $token !== '' && hash_equals($legacy, $token);
+        // 固定値から生成する旧トークンは、キャッシュされたHTMLが残っていても
+        // 受け付けない。デプロイ時にページ／CDNキャッシュを更新する前提で、
+        // 発行時刻付きの署名トークンだけを有効にする。
+        return false;
     }
 
     private function normalize_event_id($value)
@@ -1740,97 +1879,55 @@ final class Ship_Modal
         return 'ship_modal_event_' . substr(hash_hmac('sha256', absint($post_id) . '|' . $event . '|' . $event_id, wp_salt('auth')), 0, 40);
     }
 
-    private function acquire_event_option_lock($post_id)
-    {
-        $option_name = 'ship_modal_event_lock_' . absint($post_id);
-        $token = function_exists('wp_generate_uuid4') ? wp_generate_uuid4() : sha1(uniqid((string) mt_rand(), true));
-        for ($attempt = 0; $attempt < 3; $attempt++) {
-            if (add_option($option_name, array('token' => $token, 'expires' => time() + 5), '', 'no')) {
-                return array('name' => $option_name, 'token' => $token);
-            }
-            $lock = get_option($option_name, array());
-            if (! is_array($lock) || empty($lock['expires']) || (int) $lock['expires'] < time()) {
-                delete_option($option_name);
-            } else {
-                // 競合時だけ短時間待って再試行し、通常のイベント処理を遅延させない。
-                usleep(10000);
-            }
-        }
-        return null;
-    }
-
-    private function release_event_option_lock($lock)
-    {
-        if (! is_array($lock) || empty($lock['name']) || empty($lock['token'])) {
-            return;
-        }
-        $current = get_option($lock['name'], array());
-        if (is_array($current) && isset($current['token']) && hash_equals((string) $lock['token'], (string) $current['token'])) {
-            delete_option($lock['name']);
-        }
-    }
-
     /**
-     * イベントIDを短時間だけ予約する。
-     * 戻り値: string=予約済み、false=重複、null=キャッシュ保存失敗。
+     * イベントIDを専用テーブルの一意キーで短時間だけ予約する。
+     * 戻り値: string=予約済み、false=重複、null=保存失敗。
      */
     private function claim_event_id($post_id, $event, $event_id)
     {
-        if ($event_id === '') {
-            return '';
-        }
-        $key = $this->event_claim_key($post_id, $event, $event_id);
-        $ttl = max(300, min(2 * (defined('HOUR_IN_SECONDS') ? HOUR_IN_SECONDS : 3600), $this->event_token_ttl()));
-        if (function_exists('wp_using_ext_object_cache') && wp_using_ext_object_cache()) {
-            if (wp_cache_add($key, 1, 'ship_modal_event_dedup', $ttl)) {
-                return 'cache|' . $key;
-            } elseif (false !== wp_cache_get($key, 'ship_modal_event_dedup')) {
-                // add失敗でも、既存値が読める場合だけ重複と判断する。
-                return false;
-            }
-        }
-        if (false !== get_transient($key)) {
-            return false;
-        }
-        if (set_transient($key, 1, $ttl)) {
-            return 'transient|' . $key;
-        }
-
-        // APCu等の外部キャッシュがCLI／低機能環境で使えない場合も、
-        // DBスキーマを追加せず、モーダル単位の非autoload optionへ短期保存する。
-        $lock = $this->acquire_event_option_lock($post_id);
-        if (! is_array($lock)) {
+        if (! is_string($event_id) || ! preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]{15,79}$/', $event_id)) {
             return null;
         }
-        try {
-            $option_name = 'ship_modal_event_dedup_' . absint($post_id);
-            $event_hash = substr(hash('sha256', $key), 0, 40);
-            $now = time();
-            $stored = get_option($option_name, array());
-            $stored = is_array($stored) ? $stored : array();
-            foreach ($stored as $stored_hash => $stored_at) {
-                if (! is_numeric($stored_at) || (int) $stored_at < $now - $ttl) {
-                    unset($stored[$stored_hash]);
-                }
-            }
-            if (isset($stored[$event_hash])) {
-                return false;
-            }
-            if (count($stored) >= 200) {
-                asort($stored, SORT_NUMERIC);
-                $stored = array_slice($stored, -199, 199, true);
-            }
-            $stored[$event_hash] = $now;
-            if (false === update_option($option_name, $stored, false)) {
-                $verified = get_option($option_name, array());
-                if (! is_array($verified) || ! isset($verified[$event_hash])) {
-                    return null;
-                }
-            }
-            return 'option|' . $option_name . '|' . $event_hash;
-        } finally {
-            $this->release_event_option_lock($lock);
+        if (! $this->maybe_upgrade_event_claim_table()) {
+            return null;
         }
+        global $wpdb;
+
+        $key = $this->event_claim_key($post_id, $event, $event_id);
+        $ttl = max(300, min(2 * (defined('HOUR_IN_SECONDS') ? HOUR_IN_SECONDS : 3600), $this->event_token_ttl()));
+        // 高トラフィック時のテーブル肥大を防ぐ。削除は予約の成否に影響させない。
+        if (function_exists('wp_rand') && 1 === wp_rand(1, 20)) {
+            $this->cleanup_event_claims();
+        }
+
+        $claim_token = hash('sha256', $key . '|' . microtime(true) . '|' . wp_rand());
+        $expires_at = gmdate('Y-m-d H:i:s', time() + $ttl);
+        // expires_atが過去の行だけ同じ一意キーを原子的に再利用する。
+        // VALUES()はWordPressが対応するMySQL 5.7/8.xで利用できる構文。
+        $query = $wpdb->prepare(
+            "INSERT INTO {$this->event_claim_table_name()} (claim_key, claim_token, modal_id, event_name, expires_at) VALUES (%s, %s, %d, %s, %s)
+            ON DUPLICATE KEY UPDATE claim_token = IF(expires_at < UTC_TIMESTAMP(), VALUES(claim_token), claim_token), expires_at = IF(expires_at < UTC_TIMESTAMP(), VALUES(expires_at), expires_at)",
+            $key,
+            $claim_token,
+            absint($post_id),
+            sanitize_key($event),
+            $expires_at
+        );
+        $result = $wpdb->query($query);
+        if (false === $result || '' !== $wpdb->last_error) {
+            return null;
+        }
+        $stored_token = $wpdb->get_var($wpdb->prepare(
+            "SELECT claim_token FROM {$this->event_claim_table_name()} WHERE claim_key = %s LIMIT 1",
+            $key
+        ));
+        if ('' !== $wpdb->last_error) {
+            return null;
+        }
+        if (is_string($stored_token) && hash_equals($claim_token, $stored_token)) {
+            return 'table|' . $key . '|' . $claim_token;
+        }
+        return false;
     }
 
     private function release_event_claim($key)
@@ -1838,22 +1935,15 @@ final class Ship_Modal
         if (! is_string($key) || $key === '') {
             return;
         }
-        if (strpos($key, 'cache|') === 0) {
-            wp_cache_delete(substr($key, 6), 'ship_modal_event_dedup');
-            return;
-        }
-        if (strpos($key, 'transient|') === 0) {
-            delete_transient(substr($key, 10));
-            return;
-        }
-        if (strpos($key, 'option|') === 0) {
+        if (strpos($key, 'table|') === 0) {
             $parts = explode('|', $key, 3);
             if (count($parts) === 3) {
-                $stored = get_option($parts[1], array());
-                if (is_array($stored) && isset($stored[$parts[2]])) {
-                    unset($stored[$parts[2]]);
-                    update_option($parts[1], $stored, false);
-                }
+                global $wpdb;
+                $wpdb->query($wpdb->prepare(
+                    "DELETE FROM {$this->event_claim_table_name()} WHERE claim_key = %s AND claim_token = %s",
+                    $parts[1],
+                    $parts[2]
+                ));
             }
         }
     }
@@ -2208,6 +2298,10 @@ final class Ship_Modal
         if (! $post_id || 'ship_modal' !== get_post_type($post_id) || 'publish' !== get_post_status($post_id) || ! in_array($event, array('impression', 'click', 'close', 'page_view'), true)) {
             wp_send_json_error(array('message' => 'invalid request'), 400);
         }
+        $event_id = isset($_POST['event_id']) ? $this->normalize_event_id(wp_unslash($_POST['event_id'])) : '';
+        if ('' === $event_id) {
+            wp_send_json_error(array('message' => 'invalid event_id'), 400);
+        }
         $submitted_token = isset($_POST['token']) ? sanitize_text_field(wp_unslash($_POST['token'])) : '';
         $valid_token = $submitted_token !== '' && $this->verify_event_token($post_id, $submitted_token);
         $legacy_nonce = isset($_POST['nonce']) ? sanitize_text_field(wp_unslash($_POST['nonce'])) : '';
@@ -2221,7 +2315,6 @@ final class Ship_Modal
         if ($this->event_is_rate_limited($post_id, $event)) {
             wp_send_json_success(array('recorded' => false, 'reason' => 'rate_limited'));
         }
-        $event_id = isset($_POST['event_id']) ? $this->normalize_event_id(wp_unslash($_POST['event_id'])) : '';
         $event_claim = $this->claim_event_id($post_id, $event, $event_id);
         if (false === $event_claim) {
             // sendBeacon/fetchの再送や、同じリクエストのリトライは一度だけ集計する。
@@ -2419,11 +2512,18 @@ final class Ship_Modal
 
     public function delete_modal_stats($post_id)
     {
-        if ('ship_modal' !== get_post_type($post_id) || '1.1' !== get_option('ship_modal_stats_db_version')) {
+        if ('ship_modal' !== get_post_type($post_id)) {
             return;
         }
         global $wpdb;
-        $wpdb->delete($this->stats_table_name(), array('modal_id' => absint($post_id)), array('%d'));
+        if ('1.1' === get_option('ship_modal_stats_db_version')) {
+            $wpdb->delete($this->stats_table_name(), array('modal_id' => absint($post_id)), array('%d'));
+        }
+        $claims_table = $this->event_claim_table_name();
+        $claims_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($claims_table)));
+        if ($claims_exists === $claims_table) {
+            $wpdb->delete($claims_table, array('modal_id' => absint($post_id)), array('%d'));
+        }
     }
 
     public function render_stats_reset_notice()

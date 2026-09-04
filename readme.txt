@@ -3,7 +3,7 @@ Contributors: shipinc
 Requires at least: 4.8
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.8.3
+Stable tag: 1.8.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -17,6 +17,7 @@ HTML、画像、画像＋テキスト、ページャー、表示期間、表示�
 日別集計、CSV出力、GTM/GA4向けdataLayerイベント、GitHub Release／タグからの自動更新に対応します。
 表示頻度の「このタブで1回」「端末の現地日付で1日1回」「このブラウザで1回」は、ログインユーザー単位ではなく閲覧者側の保存領域を使います。
 期間指定は画面上の表示制御です。開始前の内容もHTMLソースには含まれるため、公開前の機密情報には使用しないでください。
+GA4の同意状態は `window.ShipModalConsent.setAnalyticsConsent(true)` / `false` でページ表示後も更新できます。未同意中はGoogleタグとdataLayerの双方へ送信しません。
 
 == Installation ==
 
@@ -25,6 +26,11 @@ HTML、画像、画像＋テキスト、ページャー、表示期間、表示�
 3. 「モーダル」から内容と表示設定を登録します。
 
 == Changelog ==
+
+= 1.8.4 =
+* event_idを必須化し、空・不正なイベントを400で拒否。イベント単位のDB transient／option保存を廃止し、専用テーブルの一意キーで重複排除。
+* 旧固定トークン互換を終了し、発行時刻付き署名トークンだけを受け付けるよう変更。
+* GA4同意状態を `window.ShipModalConsent.setAnalyticsConsent()` でページ表示後も更新でき、未同意中はgtagとdataLayerの双方を停止。
 
 = 1.8.3 =
 * 公開計測の重複排除フォールバックを原子的ロックで保護し、背景のinert/aria-hidden隔離とGA4同意管理フィルターを追加。表示頻度の説明を実際の保存範囲に合わせて明確化。
