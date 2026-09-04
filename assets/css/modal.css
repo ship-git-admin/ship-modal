@@ -16,6 +16,7 @@
 .ship-modal-trigger--floating-left{left:20px;right:auto}
 .ship-modal-trigger--floating-center{left:50%;right:auto;transform:translateX(-50%)}
 .ship-modal-trigger--inline-left{display:flex;margin-right:auto}
+.ship-modal__button,.ship-modal__close{border-radius:999px!important}
 .ship-modal-trigger--inline-center{display:flex;margin-right:auto;margin-left:auto}
 .ship-modal-trigger--inline-right{display:flex;margin-left:auto}
 .ship-modal-trigger[hidden]{display:none!important}
