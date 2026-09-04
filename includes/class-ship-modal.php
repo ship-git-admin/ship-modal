@@ -618,6 +618,16 @@ final class Ship_Modal
         return (bool) apply_filters('ship_modal_enable_exit_intent', (bool) $default);
     }
 
+    /**
+     * 手動表示トリガーの管理画面での選択を許可するか返す。
+     * 保存済みのトリガー値と公開表示は、停止中も変更しない。
+     */
+    private function is_manual_trigger_enabled()
+    {
+        $default = defined('SHIP_MODAL_ENABLE_MANUAL_TRIGGER') ? SHIP_MODAL_ENABLE_MANUAL_TRIGGER : false;
+        return (bool) apply_filters('ship_modal_enable_manual_trigger', (bool) $default);
+    }
+
     public function hide_non_admin_menu()
     {
         if (! $this->can_manage_modal()) {
@@ -1174,12 +1184,16 @@ final class Ship_Modal
         $trigger_options = array(
             'auto' => '遅延して自動表示',
             'scroll' => 'スクロール到達で表示',
-            'manual' => 'ボタンから表示',
         );
         if ($exit_intent_enabled) {
             $trigger_options['exit_intent'] = '離脱意図で表示（PCのみ）';
         } elseif ('exit_intent' === $trigger) {
             $trigger_options['exit_intent'] = array('label' => '離脱意図で表示（PCのみ・新規選択停止）', 'disabled' => true);
+        }
+        if ($this->is_manual_trigger_enabled()) {
+            $trigger_options['manual'] = 'ボタンから表示';
+        } elseif ('manual' === $trigger) {
+            $trigger_options['manual'] = array('label' => 'ボタンから表示（新規選択停止）', 'disabled' => true);
         }
         $delay = max(0, (int) $this->meta($post->ID, 'delay', 2));
         $scroll_threshold = min(95, max(10, (int) $this->meta($post->ID, 'scroll_threshold', 50)));
@@ -1592,9 +1606,12 @@ final class Ship_Modal
         if ($this->is_fullscreen_enabled()) {
             $design_values[] = 'fullscreen';
         }
-        $trigger_values = array('auto', 'scroll', 'manual');
+        $trigger_values = array('auto', 'scroll');
         if ($this->is_exit_intent_enabled()) {
             $trigger_values[] = 'exit_intent';
+        }
+        if ($this->is_manual_trigger_enabled()) {
+            $trigger_values[] = 'manual';
         }
         $scope_values = array('front', 'selected', 'shortcode', 'all');
         if ($this->is_singular_scope_enabled()) {
@@ -1626,6 +1643,9 @@ final class Ship_Modal
                 $locked_value = ('design' === $field && ! $this->is_fullscreen_enabled() && 'fullscreen' === $current_value)
                     || ('scope' === $field && ! $this->is_singular_scope_enabled() && 'singular' === $current_value);
                 if ('trigger' === $field && ! $this->is_exit_intent_enabled() && 'exit_intent' === $current_value) {
+                    $locked_value = true;
+                }
+                if ('trigger' === $field && ! $this->is_manual_trigger_enabled() && 'manual' === $current_value) {
                     $locked_value = true;
                 }
                 $value = $locked_value ? $current_value : (in_array($current_value, $values, true) ? $current_value : $default_value);

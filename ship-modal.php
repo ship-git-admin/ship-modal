@@ -37,6 +37,9 @@ if (! defined('SHIP_MODAL_ENABLE_SINGULAR_SCOPE')) {
 if (! defined('SHIP_MODAL_ENABLE_EXIT_INTENT')) {
     define('SHIP_MODAL_ENABLE_EXIT_INTENT', false);
 }
+if (! defined('SHIP_MODAL_ENABLE_MANUAL_TRIGGER')) {
+    define('SHIP_MODAL_ENABLE_MANUAL_TRIGGER', false);
+}
 
 require_once SHIP_MODAL_DIR . 'includes/class-ship-modal.php';
 

@@ -47,8 +47,9 @@ WordPress向けのモーダル管理プラグインです。
 - 表示レイアウト「フルスクリーン」
 - 表示対象「投稿・固定ページ（全て）」
 - 起動方法「離脱意図で表示（PCのみ）」
+- 起動方法「ボタンから表示」
 
-再開する場合は、プラグイン読込前に `SHIP_MODAL_IMAGE_ONLY_MODE` / `SHIP_MODAL_ENABLE_FULLSCREEN` / `SHIP_MODAL_ENABLE_SINGULAR_SCOPE` / `SHIP_MODAL_ENABLE_EXIT_INTENT` を `false`（画像専用モード）または `true`（その他3機能）として定義するか、対応する `ship_modal_image_only_mode` / `ship_modal_enable_fullscreen` / `ship_modal_enable_singular_scope` / `ship_modal_enable_exit_intent` フィルターで切り替えてください。
+再開する場合は、プラグイン読込前に `SHIP_MODAL_IMAGE_ONLY_MODE` を `false`、その他の `SHIP_MODAL_ENABLE_*` 定数を `true` として定義するか、対応する `ship_modal_*` フィルターで切り替えてください。
 
 ショートコード: [ship_modal id="123"]
 
