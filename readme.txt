@@ -11,6 +11,8 @@ HTML、画像、画像＋テキスト、ページャー、表示期間、表示�
 
 現行リリースでは運用方針により、管理画面の内容入力を画像専用に一時制限しています。既存のHTML・テキスト・ページャーの保存データは削除せず、公開表示も維持します。HTML等の入力を再開する場合は、プラグイン読込前に `SHIP_MODAL_IMAGE_ONLY_MODE` を `false` として定義するか、`ship_modal_image_only_mode` フィルターで `false` を返してください。
 
+管理画面の「フルスクリーン」と「投稿・固定ページ（全て）」も一時停止しています。既存設定は削除せず公開表示を維持し、新規設定では選択できません。再開する場合は、プラグイン読込前に `SHIP_MODAL_ENABLE_FULLSCREEN` / `SHIP_MODAL_ENABLE_SINGULAR_SCOPE` を `true` として定義するか、それぞれ `ship_modal_enable_fullscreen` / `ship_modal_enable_singular_scope` フィルターで `true` を返してください。
+
 == Description ==
 
 管理者と編集者が編集できるモーダルを、全ページ・トップページ・投稿・指定ページ・ショートコードへ表示できます。

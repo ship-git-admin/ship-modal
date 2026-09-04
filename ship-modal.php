@@ -26,6 +26,15 @@ if (! defined('SHIP_MODAL_IMAGE_ONLY_MODE')) {
     define('SHIP_MODAL_IMAGE_ONLY_MODE', true);
 }
 
+// 運用上いったん停止している機能。wp-config.phpでtrueを先に定義するか、
+// 対応するフィルターでtrueを返すと、保存済みデータを残したまま再開できる。
+if (! defined('SHIP_MODAL_ENABLE_FULLSCREEN')) {
+    define('SHIP_MODAL_ENABLE_FULLSCREEN', false);
+}
+if (! defined('SHIP_MODAL_ENABLE_SINGULAR_SCOPE')) {
+    define('SHIP_MODAL_ENABLE_SINGULAR_SCOPE', false);
+}
+
 require_once SHIP_MODAL_DIR . 'includes/class-ship-modal.php';
 
 Ship_Modal::instance();

@@ -588,6 +588,26 @@ final class Ship_Modal
         return (bool) apply_filters('ship_modal_image_only_mode', (bool) $default);
     }
 
+    /**
+     * フルスクリーンレイアウトの管理画面での選択を許可するか返す。
+     * 保存済みのレイアウト値と公開表示は、停止中も変更しない。
+     */
+    private function is_fullscreen_enabled()
+    {
+        $default = defined('SHIP_MODAL_ENABLE_FULLSCREEN') ? SHIP_MODAL_ENABLE_FULLSCREEN : false;
+        return (bool) apply_filters('ship_modal_enable_fullscreen', (bool) $default);
+    }
+
+    /**
+     * 投稿・固定ページ（全て）表示範囲の管理画面での選択を許可するか返す。
+     * 保存済みの表示範囲と公開表示は、停止中も変更しない。
+     */
+    private function is_singular_scope_enabled()
+    {
+        $default = defined('SHIP_MODAL_ENABLE_SINGULAR_SCOPE') ? SHIP_MODAL_ENABLE_SINGULAR_SCOPE : false;
+        return (bool) apply_filters('ship_modal_enable_singular_scope', (bool) $default);
+    }
+
     public function hide_non_admin_menu()
     {
         if (! $this->can_manage_modal()) {
@@ -814,7 +834,9 @@ final class Ship_Modal
     {
         echo '<select name="ship_modal_' . esc_attr($name) . '" id="ship-modal-' . esc_attr($name) . '" class="widefat">';
         foreach ($options as $option_value => $label) {
-            echo '<option value="' . esc_attr($option_value) . '" ' . selected($value, $option_value, false) . '>' . esc_html($label) . '</option>';
+            $option_label = is_array($label) ? (isset($label['label']) ? $label['label'] : '') : $label;
+            $disabled = is_array($label) && ! empty($label['disabled']) ? ' disabled' : '';
+            echo '<option value="' . esc_attr($option_value) . '" ' . selected($value, $option_value, false) . $disabled . '>' . esc_html($option_label) . '</option>';
         }
         echo '</select>';
     }
@@ -1036,6 +1058,18 @@ final class Ship_Modal
         $image_only_guide = in_array($type, array('image', 'hybrid'), true)
             ? '基本画像を1枚設定します。スマホ用画像が必要な場合だけ追加できます。'
             : '既存の内容形式は変更せず、そのまま公開表示します。';
+        $fullscreen_enabled = $this->is_fullscreen_enabled();
+        $design_options = array(
+            'center' => '中央カード',
+            'bottom' => '画面下部バナー',
+            'side' => '右下ポップアップ',
+        );
+        if ($fullscreen_enabled) {
+            $design_options['fullscreen'] = 'フルスクリーン';
+        } elseif ('fullscreen' === $design) {
+            // 既存設定は保持し、停止中であることだけを表示する。選択して再設定することはできない。
+            $design_options['fullscreen'] = array('label' => 'フルスクリーン（新規選択停止）', 'disabled' => true);
+        }
         ?>
         <?php if (! $image_only_mode) : ?><p class="description">HTML、画像バナー、画像＋HTML、複数ページのページャーから選べます。ページャーは各ページに画像とHTMLを設定できます。</p><?php endif; ?>
         <div class="notice notice-info inline ship-modal-admin-guide">
@@ -1089,7 +1123,7 @@ final class Ship_Modal
             <tr class="ship-modal-buttons-row"><th>ボタン</th><td><p class="description">任意・最大3個。1行あたりの文字数と行数に上限があります。</p><?php $this->render_button_fields($buttons, 3, 'ship_modal_buttons'); ?></td></tr>
             <tr class="ship-modal-pages-row"><th>ページ</th><td><div id="ship-modal-pages"><?php foreach ($pages as $index => $page) { $this->render_page_row($index, is_array($page) ? $page : array()); } ?></div><p><button type="button" class="button" id="ship-modal-add-page">＋ ページを追加</button></p><p class="description">各ページに画像・見出し・本文・ボタンを個別に設定できます。画像だけのページも作成できます。</p></td></tr>
             <?php endif; ?>
-            <tr><th><label for="ship-modal-design">表示レイアウト</label></th><td><?php $this->select('design', $design, array('center' => '中央カード', 'bottom' => '画面下部バナー', 'side' => '右下ポップアップ', 'fullscreen' => 'フルスクリーン')); ?><p class="description">モーダル全体の表示位置・形状を選択します。内容の形式は上の「フレーム」で設定します。</p></td></tr>
+            <tr><th><label for="ship-modal-design">表示レイアウト</label></th><td><?php $this->select('design', $design, $design_options); ?><p class="description">モーダル全体の表示位置・形状を選択します。内容の形式は上の「フレーム」で設定します。<?php if (! $fullscreen_enabled) : ?>フルスクリーンは一時停止中です。既存設定は保持され、再開フラグを有効にすると復元できます。<?php endif; ?></p></td></tr>
             <?php if (! $image_only_mode) : ?>
             <tr><th><label for="ship-modal-border_radius">角丸（border-radius）</label></th><td><input type="number" min="0" max="48" step="1" class="small-text" name="ship_modal_border_radius" id="ship-modal-border_radius" value="<?php echo esc_attr($border_radius); ?>"> px <p class="description">0〜48px。0なら角丸なし。</p></td></tr>
             <tr><th><label for="ship-modal-padding">内側の余白（padding）</label></th><td><input type="number" min="0" max="64" step="1" class="small-text" name="ship_modal_padding" id="ship-modal-padding" value="<?php echo esc_attr($padding); ?>"> px <p class="description">0〜64px。画像のみフレームは画像をコンテナいっぱいに表示します。</p></td></tr>
@@ -1104,13 +1138,25 @@ final class Ship_Modal
     public function render_display_box($post)
     {
         $scope = $this->meta($post->ID, 'scope', 'front');
+        $singular_scope_enabled = $this->is_singular_scope_enabled();
         $scope_options = array(
             'front' => 'トップページのみ',
-            'singular' => '投稿・固定ページ（全て）',
             'selected' => '指定ページのみ',
             'shortcode' => 'ショートコードのみ',
             'all' => '全ページ（注意）',
         );
+        if ($singular_scope_enabled) {
+            $scope_options = array(
+                'front' => 'トップページのみ',
+                'singular' => '投稿・固定ページ（全て）',
+                'selected' => '指定ページのみ',
+                'shortcode' => 'ショートコードのみ',
+                'all' => '全ページ（注意）',
+            );
+        } elseif ('singular' === $scope) {
+            // 既存設定を破棄せず、停止中の値として表示する。公開表示は従来どおり維持する。
+            $scope_options['singular'] = array('label' => '投稿・固定ページ（全て・新規選択停止）', 'disabled' => true);
+        }
         if (! isset($scope_options[$scope])) {
             $scope = 'front';
         }
@@ -1146,10 +1192,11 @@ final class Ship_Modal
             <tr><th>表示対象</th><td>
                 <div class="ship-modal-scope-options" role="radiogroup" aria-label="表示対象">
                     <?php foreach ($scope_options as $scope_value => $scope_label) : ?>
-                        <label class="<?php echo 'all' === $scope_value ? 'ship-modal-scope-option--all' : ''; ?>"><input type="radio" name="ship_modal_scope" value="<?php echo esc_attr($scope_value); ?>" <?php checked($scope, $scope_value); ?>> <?php echo esc_html($scope_label); ?></label>
+                        <?php $scope_label_text = is_array($scope_label) ? (isset($scope_label['label']) ? $scope_label['label'] : '') : $scope_label; $scope_disabled = is_array($scope_label) && ! empty($scope_label['disabled']); ?>
+                        <label class="<?php echo 'all' === $scope_value ? 'ship-modal-scope-option--all' : ''; ?><?php echo $scope_disabled ? ' ship-modal-scope-option--disabled' : ''; ?>"><input type="radio" name="ship_modal_scope" value="<?php echo esc_attr($scope_value); ?>" <?php checked($scope, $scope_value); ?><?php disabled($scope_disabled, true); ?>> <?php echo esc_html($scope_label_text); ?></label>
                     <?php endforeach; ?>
                 </div>
-                <p class="description ship-modal-scope-warning">新規モーダルの初期値は「トップページのみ」です。「全ページ（注意）」はサイト全体に表示されるため、必要な場合だけ選択してください。</p>
+                <p class="description ship-modal-scope-warning">新規モーダルの初期値は「トップページのみ」です。「全ページ（注意）」はサイト全体に表示されるため、必要な場合だけ選択してください。<?php if (! $singular_scope_enabled) : ?>「投稿・固定ページ（全て）」は一時停止中です。既存設定は保持され、再開フラグを有効にすると復元できます。<?php endif; ?></p>
                 <div class="ship-modal-target-picker">
                     <div class="ship-modal-target-picker__heading"><strong>指定ページを追加</strong><span class="ship-modal-target-count" aria-live="polite"></span></div>
                     <div class="ship-modal-target-search-row"><input type="search" id="ship-modal-target-search" class="widefat" placeholder="ページ名・記事タイトルで検索（2文字以上）"><select id="ship-modal-target-post-type"><option value="">すべての種類</option><?php foreach ($targetable_types as $target_type => $target_type_object) : ?><option value="<?php echo esc_attr($target_type); ?>"><?php echo esc_html($target_type_object->labels->name); ?></option><?php endforeach; ?></select></div>
@@ -1493,11 +1540,20 @@ final class Ship_Modal
             }
             update_post_meta($post_id, '_ship_modal_target_ids', $target_ids);
         }
+        $design_values = array('center', 'bottom', 'side');
+        if ($this->is_fullscreen_enabled()) {
+            $design_values[] = 'fullscreen';
+        }
+        $scope_values = array('front', 'selected', 'shortcode', 'all');
+        if ($this->is_singular_scope_enabled()) {
+            // 既存の並び順を維持しつつ、機能再開時に選択肢を戻す。
+            $scope_values = array('front', 'singular', 'selected', 'shortcode', 'all');
+        }
         $allowed = array(
             'content_type' => $allowed_types,
             'image_position' => array('top', 'left', 'right'),
-            'design' => array('center', 'bottom', 'side', 'fullscreen'),
-            'scope' => array('front', 'singular', 'selected', 'shortcode', 'all'),
+            'design' => $design_values,
+            'scope' => $scope_values,
             'trigger' => array('auto', 'scroll', 'exit_intent', 'manual'),
             'trigger_position' => array('left', 'center', 'right'),
             'frequency' => array('always', 'session', 'day', 'once'),
@@ -1515,7 +1571,9 @@ final class Ship_Modal
                 ? sanitize_key(wp_unslash($_POST['ship_modal_' . $field]))
                 : $current_value;
             if (! in_array($value, $values, true)) {
-                $value = in_array($current_value, $values, true) ? $current_value : $default_value;
+                $locked_value = ('design' === $field && ! $this->is_fullscreen_enabled() && 'fullscreen' === $current_value)
+                    || ('scope' === $field && ! $this->is_singular_scope_enabled() && 'singular' === $current_value);
+                $value = $locked_value ? $current_value : (in_array($current_value, $values, true) ? $current_value : $default_value);
             }
             update_post_meta($post_id, '_ship_modal_' . $field, $value);
         }
@@ -1591,7 +1649,7 @@ final class Ship_Modal
     public function render_admin_column($column, $post_id)
     {
         if ('ship_modal_scope' === $column) {
-            $labels = array('front' => 'トップ', 'singular' => '投稿・固定ページ（全て）', 'selected' => '指定ページ', 'shortcode' => 'ショートコード', 'all' => '全ページ（注意）');
+            $labels = array('front' => 'トップ', 'singular' => $this->is_singular_scope_enabled() ? '投稿・固定ページ（全て）' : '投稿・固定ページ（全て・新規選択停止）', 'selected' => '指定ページ', 'shortcode' => 'ショートコード', 'all' => '全ページ（注意）');
             $scope = $this->meta($post_id, 'scope', 'front');
             echo esc_html(isset($labels[$scope]) ? $labels[$scope] : $scope);
         } elseif ('ship_modal_schedule' === $column) {
