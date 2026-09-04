@@ -7,6 +7,7 @@
   var pendingModals = [];
   var gtagScriptRequested = false;
   var gtagConfiguredIds = {};
+  var backgroundInertState = [];
 
   function localDateKey() {
     var date = new Date();
@@ -33,6 +34,51 @@
     document.querySelectorAll('[data-ship-modal-target]').forEach(function (trigger) {
       if (trigger.dataset.shipModalTarget === modal.id) trigger.setAttribute('aria-expanded', expanded ? 'true' : 'false');
     });
+  }
+
+  function setBackgroundInert(modal) {
+    restoreBackgroundInert();
+    if (!modal || !document.body) return;
+
+    // ショートコードで本文内に置かれる場合もあるため、モーダルを含む
+    // body直下の祖先だけは対象外にする。その他の背景要素は支援技術と
+    // キーボードから一時的に隠し、モーダル内のフォーカストラップを補完する。
+    var modalRoot = modal;
+    while (modalRoot.parentElement && modalRoot.parentElement !== document.body) {
+      modalRoot = modalRoot.parentElement;
+    }
+    Array.prototype.forEach.call(document.body.children, function (element) {
+      if (element === modalRoot || /^(SCRIPT|STYLE|LINK|META|NOSCRIPT|TEMPLATE)$/i.test(element.tagName)) return;
+      var supportsInert = 'inert' in element;
+      backgroundInertState.push({
+        element: element,
+        hadInert: element.hasAttribute('inert'),
+        inertValue: supportsInert ? !!element.inert : element.hasAttribute('inert'),
+        hadAriaHidden: element.hasAttribute('aria-hidden'),
+        ariaHiddenValue: element.getAttribute('aria-hidden'),
+        supportsInert: supportsInert
+      });
+      if (supportsInert) element.inert = true;
+      else element.setAttribute('inert', '');
+      element.setAttribute('aria-hidden', 'true');
+    });
+  }
+
+  function restoreBackgroundInert() {
+    backgroundInertState.forEach(function (state) {
+      var element = state.element;
+      if (!element || !document.documentElement.contains(element)) return;
+      if (state.supportsInert) {
+        element.inert = state.inertValue;
+      } else if (state.hadInert) {
+        element.setAttribute('inert', '');
+      } else {
+        element.removeAttribute('inert');
+      }
+      if (state.hadAriaHidden) element.setAttribute('aria-hidden', state.ariaHiddenValue);
+      else element.removeAttribute('aria-hidden');
+    });
+    backgroundInertState = [];
   }
 
   function storageKey(modal) {
@@ -190,6 +236,7 @@
   }
 
   function ensureGtag() {
+    if (config.ga4Enabled === false) return false;
     var measurementId = String(config.ga4MeasurementId || '').trim();
     var hadGtag = typeof window.gtag === 'function';
     if (!hadGtag && !measurementId) return false;
@@ -281,6 +328,7 @@
       if (close) close.focus();
       else if (elements.length) elements[0].focus();
       else if (dialog) dialog.focus();
+      setBackgroundInert(modal);
     });
     markShown(modal);
     track(modal, 'impression');
@@ -298,6 +346,7 @@
       modal.classList.remove('is-open');
       modal.classList.remove('is-closing');
       if (activeModal === modal) activeModal = null;
+      restoreBackgroundInert();
       if (previousFocus && previousFocus.focus && document.documentElement.contains(previousFocus)) previousFocus.focus();
       previousFocus = null;
       while (pendingModals.length && !canShow(pendingModals[0])) pendingModals.shift();

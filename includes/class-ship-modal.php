@@ -555,7 +555,7 @@ final class Ship_Modal
             <?php if ($invalid_measurement_id) : ?><div class="notice notice-warning"><p>GA4測定IDの形式が正しくないため、空欄として保存しました。<code>G-XXXXXXXXXX</code> の形式で入力してください。</p></div><?php endif; ?>
             <div class="notice notice-info inline ship-modal-settings-intro">
                 <p><strong>サイトごとに一度だけ設定してください。</strong></p>
-                <p>GTMでモーダル用のカスタムイベントタグを作らなくても、既存のGA4へ直接イベントを送信できます。測定IDが空欄で、ページ上に既存の <code>gtag()</code> がない場合は、従来どおり <code>dataLayer</code> へ出力します。</p>
+                <p>GTMでモーダル用のカスタムイベントタグを作らなくても、既存のGA4へ直接イベントを送信できます。測定IDが空欄で、ページ上に既存の <code>gtag()</code> がない場合は、従来どおり <code>dataLayer</code> へ出力します。Cookie同意管理と連動する場合は、<code>ship_modal_ga4_enabled</code> フィルターで同意済みの時だけtrueを返してください。</p>
             </div>
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
                 <input type="hidden" name="action" value="ship_modal_save_settings">
@@ -1036,7 +1036,7 @@ final class Ship_Modal
             <tr class="ship-modal-scroll-row"><th><label for="ship-modal-scroll_threshold">スクロール到達率</label></th><td><input type="number" min="10" max="95" step="5" class="small-text" name="ship_modal_scroll_threshold" id="ship-modal-scroll_threshold" value="<?php echo esc_attr($scroll_threshold); ?>"> ％<p class="description">ページ全体の指定割合までスクロールすると表示します。</p></td></tr>
             <tr class="ship-modal-trigger-text-row"><th><label for="ship-modal-trigger_text">ボタン文言</label></th><td><div class="ship-modal-button-label-wrap"><input type="text" class="widefat ship-modal-button-label" name="ship_modal_trigger_text" id="ship-modal-trigger_text" value="<?php echo esc_attr($trigger_text); ?>" data-max-lines="<?php echo esc_attr($button_label_limits['lines']); ?>" data-max-chars-per-line="<?php echo esc_attr($button_label_limits['chars_per_line']); ?>"><span class="ship-modal-button-label-meta" aria-live="polite"></span></div><p class="description">1行<?php echo esc_html($button_label_limits['chars_per_line']); ?>文字・最大<?php echo esc_html($button_label_limits['lines']); ?>行まで。改行は&lt;br&gt;を入力してください。超過分は保存時に自動調整されます。</p></td></tr>
             <tr class="ship-modal-trigger-style-row"><th>ボタンデザイン</th><td><label>背景色 <input type="color" name="ship_modal_trigger_bg_color" value="<?php echo esc_attr($trigger_bg_color); ?>"></label> <label>文字色 <input type="color" name="ship_modal_trigger_text_color" value="<?php echo esc_attr($trigger_text_color); ?>"></label><br><label for="ship-modal-trigger_position">配置 </label><?php $this->select('trigger_position', $trigger_position, array('left' => '左下', 'center' => '中央下', 'right' => '右下')); ?><p class="description">手動表示ボタンの背景色・文字色・画面下部の配置を設定します。</p></td></tr>
-            <tr><th><label for="ship-modal-frequency">表示頻度</label></th><td><?php $this->select('frequency', $frequency, array('always' => '毎回', 'session' => 'セッションごとに1回', 'day' => '1日1回', 'once' => 'ユーザーごとに1回')); ?></td></tr>
+            <tr><th><label for="ship-modal-frequency">表示頻度</label></th><td><?php $this->select('frequency', $frequency, array('always' => '毎回', 'session' => 'このタブで1回', 'day' => '端末の現地日付で1日1回', 'once' => 'このブラウザで1回')); ?></td></tr>
             <tr><th><label for="ship-modal-start_at">開始日時</label></th><td><input type="datetime-local" class="widefat" name="ship_modal_start_at" id="ship-modal-start_at" value="<?php echo esc_attr($start); ?>"><p class="description">空欄ならすぐ表示</p></td></tr>
             <tr><th><label for="ship-modal-end_at">終了日時</label></th><td><input type="datetime-local" class="widefat" name="ship_modal_end_at" id="ship-modal-end_at" value="<?php echo esc_attr($end); ?>"><p class="description">空欄なら期限なし</p></td></tr>
             <tr><th>テーマカラー</th><td>
@@ -1688,6 +1688,9 @@ final class Ship_Modal
             'ajaxUrl' => admin_url('admin-ajax.php'),
             'ga4MeasurementId' => $settings['measurement_id'],
             'ga4Transport' => $settings['transport'],
+            // CMPと連携するサイトはこのフィルターで同意状態を返せる。
+            // 未設定時は従来互換で送信を許可する。
+            'ga4Enabled' => (bool) apply_filters('ship_modal_ga4_enabled', true),
         );
     }
 
