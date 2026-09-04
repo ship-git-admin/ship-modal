@@ -21,9 +21,10 @@ final class Ship_Modal
 
     private function __construct()
     {
-        add_action('init', array($this, 'register_post_type'));
         add_action('init', array($this, 'maybe_upgrade_stats_table'), 1);
-        add_action('init', array($this, 'ensure_admin_capabilities'), 20);
+        // 権限を先に準備してからCPTを登録し、編集者にも管理画面を表示できるようにする。
+        add_action('init', array($this, 'ensure_admin_capabilities'), 2);
+        add_action('init', array($this, 'register_post_type'), 10);
         add_action('admin_menu', array($this, 'hide_non_admin_menu'), 999);
         add_action('admin_init', array($this, 'restrict_non_admin_access'));
         add_action('add_meta_boxes', array($this, 'register_meta_boxes'));
@@ -369,8 +370,8 @@ final class Ship_Modal
             ),
             'public' => false,
             'publicly_queryable' => false,
-            'show_ui' => $this->is_admin_user(),
-            'show_in_menu' => $this->is_admin_user(),
+            'show_ui' => $this->can_manage_modal(),
+            'show_in_menu' => $this->can_manage_modal(),
             'menu_icon' => 'dashicons-welcome-view-site',
             'supports' => array('title'),
             'capability_type' => array('ship_modal', 'ship_modals'),
@@ -398,7 +399,7 @@ final class Ship_Modal
 
     public function ensure_admin_capabilities()
     {
-        if ('2' === get_option('ship_modal_capabilities_version')) {
+        if ('3' === get_option('ship_modal_capabilities_version')) {
             return;
         }
         $capabilities = array(
@@ -414,38 +415,38 @@ final class Ship_Modal
                 continue;
             }
             foreach ($capabilities as $capability) {
-                if ('administrator' === $role_name) {
+                if (in_array($role_name, array('administrator', 'editor'), true)) {
                     $role->add_cap($capability);
                 } else {
                     $role->remove_cap($capability);
                 }
             }
         }
-        update_option('ship_modal_capabilities_version', '2', false);
+        update_option('ship_modal_capabilities_version', '3', false);
     }
 
-    private function is_admin_user()
+    private function can_manage_modal()
     {
         $user = wp_get_current_user();
-        return is_super_admin() || ($user && in_array('administrator', (array) $user->roles, true) && current_user_can('manage_options'));
+        return is_super_admin() || ($user && current_user_can('edit_ship_modals'));
     }
 
     public function hide_non_admin_menu()
     {
-        if (! $this->is_admin_user()) {
+        if (! $this->can_manage_modal()) {
             remove_menu_page('edit.php?post_type=ship_modal');
         }
     }
 
     public function restrict_non_admin_access()
     {
-        if ($this->is_admin_user()) {
+        if ($this->can_manage_modal()) {
             return;
         }
         $post_type = isset($_GET['post_type']) ? sanitize_key(wp_unslash($_GET['post_type'])) : '';
         $post_id = isset($_GET['post']) ? absint($_GET['post']) : 0;
         if ('ship_modal' === $post_type || ($post_id && 'ship_modal' === get_post_type($post_id))) {
-            wp_die('この機能は管理者のみ利用できます。', 'Ship Modal', array('response' => 403));
+            wp_die('モーダルを操作する権限がありません。', 'Ship Modal', array('response' => 403));
         }
     }
 
@@ -533,7 +534,7 @@ final class Ship_Modal
     {
         check_ajax_referer('ship_modal_target_search', 'nonce');
         $modal_post_id = isset($_POST['modal_post_id']) ? absint($_POST['modal_post_id']) : 0;
-        if (! $this->is_admin_user() || ($modal_post_id && ! current_user_can('edit_post', $modal_post_id))) {
+        if (! $this->can_manage_modal() || ($modal_post_id && ! current_user_can('edit_post', $modal_post_id))) {
             wp_send_json_error(array('message' => '権限がありません。'), 403);
         }
         $search = isset($_POST['q']) ? sanitize_text_field(wp_unslash($_POST['q'])) : '';
@@ -897,7 +898,7 @@ final class Ship_Modal
         if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
             return;
         }
-        if (! $this->is_admin_user() || ! current_user_can('edit_post', $post_id)) {
+        if (! $this->can_manage_modal() || ! current_user_can('edit_post', $post_id)) {
             return;
         }
 
@@ -1176,7 +1177,7 @@ final class Ship_Modal
 
     private function user_can_preview($post_id)
     {
-        return $this->is_admin_user() && current_user_can('edit_post', absint($post_id));
+        return $this->can_manage_modal() && current_user_can('edit_post', absint($post_id));
     }
 
     private function is_in_schedule($post_id)
@@ -1625,8 +1626,8 @@ final class Ship_Modal
     public function export_stats()
     {
         $post_id = isset($_GET['post_id']) ? absint($_GET['post_id']) : 0;
-        if (! $this->is_admin_user() || ! $post_id || 'ship_modal' !== get_post_type($post_id) || ! current_user_can('edit_post', $post_id)) {
-            wp_die('この機能は管理者のみ利用できます。', 'Ship Modal', array('response' => 403));
+        if (! $this->can_manage_modal() || ! $post_id || 'ship_modal' !== get_post_type($post_id) || ! current_user_can('edit_post', $post_id)) {
+            wp_die('モーダルを操作する権限がありません。', 'Ship Modal', array('response' => 403));
         }
         check_admin_referer('ship_modal_export_stats_' . $post_id);
 
@@ -1684,8 +1685,8 @@ final class Ship_Modal
             wp_die('不正なリクエストです。', 'Ship Modal', array('response' => 405));
         }
         $post_id = isset($_POST['post_id']) ? absint($_POST['post_id']) : 0;
-        if (! $this->is_admin_user() || ! $post_id || 'ship_modal' !== get_post_type($post_id) || ! current_user_can('edit_post', $post_id)) {
-            wp_die('この機能は管理者のみ利用できます。', 'Ship Modal', array('response' => 403));
+        if (! $this->can_manage_modal() || ! $post_id || 'ship_modal' !== get_post_type($post_id) || ! current_user_can('edit_post', $post_id)) {
+            wp_die('モーダルを操作する権限がありません。', 'Ship Modal', array('response' => 403));
         }
         check_admin_referer('ship_modal_reset_stats_' . $post_id);
 
@@ -1761,7 +1762,7 @@ final class Ship_Modal
 
     public function render_stats_reset_notice()
     {
-        if (! $this->is_admin_user() || empty($_GET['ship_modal_stats_reset']) || '1' !== sanitize_text_field(wp_unslash($_GET['ship_modal_stats_reset']))) {
+        if (! $this->can_manage_modal() || empty($_GET['ship_modal_stats_reset']) || '1' !== sanitize_text_field(wp_unslash($_GET['ship_modal_stats_reset']))) {
             return;
         }
         echo '<div class="notice notice-success is-dismissible"><p>このモーダルの計測データをリセットしました。</p></div>';

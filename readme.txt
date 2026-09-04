@@ -3,7 +3,7 @@ Contributors: shipinc
 Requires at least: 4.8
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.6.7
+Stable tag: 1.6.8
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -11,7 +11,7 @@ HTML、画像、画像＋テキスト、ページャー、表示期間、表示�
 
 == Description ==
 
-管理者だけが編集できるモーダルを、全ページ・トップページ・投稿・指定ページ・ショートコードへ表示できます。
+管理者と編集者が編集できるモーダルを、全ページ・トップページ・投稿・指定ページ・ショートコードへ表示できます。
 日別集計、CSV出力、GTM/GA4向けdataLayerイベント、GitHub mainブランチからの自動更新に対応します。
 期間指定は画面上の表示制御です。開始前の内容もHTMLソースには含まれるため、公開前の機密情報には使用しないでください。
 
@@ -22,6 +22,10 @@ HTML、画像、画像＋テキスト、ページャー、表示期間、表示�
 3. 「モーダル」から内容と表示設定を登録します。
 
 == Changelog ==
+
+= 1.6.8 =
+* 管理者に加えて編集者もモーダルの作成・編集・公開・プレビュー・計測操作を行えるよう権限を拡張。
+* GitHubの更新先をship-git-admin/ship-modalへ変更。
 
 = 1.6.7 =
 * ページャー矢印をCSS描画へ変更し、フォント差に左右されない中央配置へ修正。
