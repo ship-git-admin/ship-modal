@@ -1085,7 +1085,7 @@ final class Ship_Modal
         echo '<p><strong>閉じる回数：</strong> ' . number_format_i18n($closes) . '</p>';
         echo '<p><strong>ページャー閲覧数：</strong> ' . number_format_i18n($page_views) . '</p>';
         echo '</div>';
-        echo '<p class="description">ページャー閲覧数はページャーのページ表示・切り替えを記録します。画像＋HTMLなどページャーを使わないフレームでは0のままです。表示・クリック・閉じる・ページャー閲覧はGTM/GA4向けdataLayerにも送信します。日別集計の導入前から累計がある場合、全期間CSVには「日別導入前」として差分を補完します。</p>';
+        echo '<p class="description">ページャー閲覧数はページャーのページ表示・切り替えを記録します。画像＋HTMLなどページャーを使わないフレームでは0のままです。表示・クリック・閉じる・ページャー閲覧はプラグイン内に記録されます。GA4へ直接送信する場合は「モーダル」→「計測・GA4連携設定」でGA4測定ID（<code>G-XXXXXXXXXX</code>）を登録してください。GTMを使う場合は同設定で「GTMのdataLayerのみ」を選び、GTM側で各カスタムイベントをGA4イベントタグへ紐付ける設定が必要です。設定後は公開ページで動作を確認してください。日別集計の導入前から累計がある場合、全期間CSVには「日別導入前」として差分を補完します。</p>';
 
         echo '<h4 class="ship-modal-stats-heading">直近14日の日別集計</h4>';
         if ($daily) {
