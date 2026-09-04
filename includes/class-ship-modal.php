@@ -720,7 +720,7 @@ final class Ship_Modal
         </div>
         <?php if ('publish' !== $post->post_status) : ?><div class="notice notice-warning inline ship-modal-status-warning"><p><strong>現在は公開状態ではありません。</strong>このモーダルは公開ページには表示されません。まず下書きとして保存し、確認後に右上の「公開」または「更新」で公開してください。</p></div><?php endif; ?>
         <?php if ($post->ID) : ?><div class="ship-modal-preview-bar"><input type="hidden" name="ship_modal_preview_post_id" value="<?php echo absint($post->ID); ?>"><?php if ('auto-draft' !== $post->post_status) : ?><a class="button" href="<?php echo esc_url($preview_url); ?>" target="_blank" rel="noopener">保存済み内容をプレビュー</a><?php endif; ?><button type="submit" name="ship_modal_preview_after_save" value="1" class="button button-primary">更新してプレビュー</button><span>編集中の内容を保存してから、プレビュー画面を開きます。</span></div><?php endif; ?>
-        <?php if ($image_only_mode) : ?><input type="hidden" name="ship_modal_content_type" id="ship-modal-content_type" value="<?php echo esc_attr($type); ?>"><?php endif; ?>
+        <?php if ($image_only_mode) : ?><input type="hidden" name="ship_modal_content_type" id="ship-modal-content_type" value="<?php echo esc_attr($type ?: 'image'); ?>"><?php endif; ?>
         <table class="form-table ship-modal-form-table">
             <?php if (! $image_only_mode) : ?>
             <tr><th><label for="ship-modal-content_type">フレーム</label></th><td><?php $this->select('content_type', $type, array('html' => '旧：自由HTML', 'image' => '画像のみ', 'hybrid' => '画像＋テキスト（ボタン任意）', 'text' => 'テキスト（ボタン任意）', 'pager' => 'ページャー（複数ページ）')); ?></td></tr>

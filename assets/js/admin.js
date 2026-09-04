@@ -14,10 +14,13 @@
   }
 
   function refreshRows() {
-    var type = $('#ship-modal-content_type').val();
+    var $typeField = $('#ship-modal-content_type');
+    var imageOnlyMode = $typeField.is('input[type="hidden"]');
+    var type = $typeField.val() || (imageOnlyMode ? 'image' : '');
     $('.ship-modal-legacy-html-row').toggle(type === 'html');
     $('.ship-modal-copy-row').toggle(type === 'hybrid' || type === 'text');
-    $('.ship-modal-single-image-row').toggle(type === 'image' || type === 'hybrid');
+    $('.ship-modal-single-image-row').toggle(imageOnlyMode || type === 'image' || type === 'hybrid');
+    $('.ship-modal-single-image-alt-row').toggle(imageOnlyMode || type === 'image' || type === 'hybrid');
     $('.ship-modal-hybrid-image-row').toggle(type === 'hybrid');
     $('.ship-modal-buttons-row').toggle(type === 'hybrid' || type === 'text');
     $('.ship-modal-pages-row').toggle(type === 'pager');
