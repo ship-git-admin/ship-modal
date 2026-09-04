@@ -3,7 +3,7 @@ Contributors: shipinc
 Requires at least: 4.8
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.8.6
+Stable tag: 1.8.7
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -36,6 +36,9 @@ GA4の同意状態は `window.ShipModalConsent.setAnalyticsConsent(true)` / `fal
 3. 「モーダル」から内容と表示設定を登録します。
 
 == Changelog ==
+
+= 1.8.7 =
+* 一時停止中の「離脱意図で表示（PCのみ）」「ボタンから表示」の説明カードを管理画面から非表示化。
 
 = 1.8.6 =
 * ボタン文言を1行16文字・最大2行（合計32文字）に統一し、ショートコードの使い方・設置位置を管理画面に追加。
