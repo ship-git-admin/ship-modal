@@ -1123,7 +1123,7 @@ final class Ship_Modal
             <tr class="ship-modal-buttons-row"><th>ボタン</th><td><p class="description">任意・最大3個。1行あたりの文字数と行数に上限があります。</p><?php $this->render_button_fields($buttons, 3, 'ship_modal_buttons'); ?></td></tr>
             <tr class="ship-modal-pages-row"><th>ページ</th><td><div id="ship-modal-pages"><?php foreach ($pages as $index => $page) { $this->render_page_row($index, is_array($page) ? $page : array()); } ?></div><p><button type="button" class="button" id="ship-modal-add-page">＋ ページを追加</button></p><p class="description">各ページに画像・見出し・本文・ボタンを個別に設定できます。画像だけのページも作成できます。</p></td></tr>
             <?php endif; ?>
-            <tr><th><label for="ship-modal-design">表示レイアウト</label></th><td><?php $this->select('design', $design, $design_options); ?><p class="description">モーダル全体の表示位置・形状を選択します。内容の形式は上の「フレーム」で設定します。<?php if (! $fullscreen_enabled) : ?>フルスクリーンは一時停止中です。既存設定は保持され、再開フラグを有効にすると復元できます。<?php endif; ?></p></td></tr>
+            <tr><th><label for="ship-modal-design">表示レイアウト</label></th><td><?php $this->select('design', $design, $design_options); ?><p class="description">モーダル全体の表示位置・形状を選択します。内容の形式は上の「フレーム」で設定します。</p></td></tr>
             <?php if (! $image_only_mode) : ?>
             <tr><th><label for="ship-modal-border_radius">角丸（border-radius）</label></th><td><input type="number" min="0" max="48" step="1" class="small-text" name="ship_modal_border_radius" id="ship-modal-border_radius" value="<?php echo esc_attr($border_radius); ?>"> px <p class="description">0〜48px。0なら角丸なし。</p></td></tr>
             <tr><th><label for="ship-modal-padding">内側の余白（padding）</label></th><td><input type="number" min="0" max="64" step="1" class="small-text" name="ship_modal_padding" id="ship-modal-padding" value="<?php echo esc_attr($padding); ?>"> px <p class="description">0〜64px。画像のみフレームは画像をコンテナいっぱいに表示します。</p></td></tr>
@@ -1199,7 +1199,7 @@ final class Ship_Modal
                         <label class="<?php echo 'all' === $scope_value ? 'ship-modal-scope-option--all' : ''; ?><?php echo $scope_disabled ? ' ship-modal-scope-option--disabled' : ''; ?>"><input type="radio" name="ship_modal_scope" value="<?php echo esc_attr($scope_value); ?>" <?php checked($scope, $scope_value); ?><?php disabled($scope_disabled, true); ?>> <?php echo esc_html($scope_label_text); ?></label>
                     <?php endforeach; ?>
                 </div>
-                <p class="description ship-modal-scope-warning">新規モーダルの初期値は「トップページのみ」です。「全ページ（注意）」はサイト全体に表示されるため、必要な場合だけ選択してください。<?php if (! $singular_scope_enabled) : ?>「投稿・固定ページ（全て）」は一時停止中です。既存設定は保持され、再開フラグを有効にすると復元できます。<?php endif; ?></p>
+                <p class="description ship-modal-scope-warning">新規モーダルの初期値は「トップページのみ」です。「全ページ（注意）」はサイト全体に表示されるため、必要な場合だけ選択してください。</p>
                 <div class="ship-modal-target-picker">
                     <div class="ship-modal-target-picker__heading"><strong>指定ページを追加</strong><span class="ship-modal-target-count" aria-live="polite"></span></div>
                     <div class="ship-modal-target-search-row"><input type="search" id="ship-modal-target-search" class="widefat" placeholder="ページ名・記事タイトルで検索（2文字以上）"><select id="ship-modal-target-post-type"><option value="">すべての種類</option><?php foreach ($targetable_types as $target_type => $target_type_object) : ?><option value="<?php echo esc_attr($target_type); ?>"><?php echo esc_html($target_type_object->labels->name); ?></option><?php endforeach; ?></select></div>
