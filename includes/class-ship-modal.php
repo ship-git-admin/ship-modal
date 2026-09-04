@@ -1740,6 +1740,36 @@ final class Ship_Modal
         return 'ship_modal_event_' . substr(hash_hmac('sha256', absint($post_id) . '|' . $event . '|' . $event_id, wp_salt('auth')), 0, 40);
     }
 
+    private function acquire_event_option_lock($post_id)
+    {
+        $option_name = 'ship_modal_event_lock_' . absint($post_id);
+        $token = function_exists('wp_generate_uuid4') ? wp_generate_uuid4() : sha1(uniqid((string) mt_rand(), true));
+        for ($attempt = 0; $attempt < 3; $attempt++) {
+            if (add_option($option_name, array('token' => $token, 'expires' => time() + 5), '', 'no')) {
+                return array('name' => $option_name, 'token' => $token);
+            }
+            $lock = get_option($option_name, array());
+            if (! is_array($lock) || empty($lock['expires']) || (int) $lock['expires'] < time()) {
+                delete_option($option_name);
+            } else {
+                // 競合時だけ短時間待って再試行し、通常のイベント処理を遅延させない。
+                usleep(10000);
+            }
+        }
+        return null;
+    }
+
+    private function release_event_option_lock($lock)
+    {
+        if (! is_array($lock) || empty($lock['name']) || empty($lock['token'])) {
+            return;
+        }
+        $current = get_option($lock['name'], array());
+        if (is_array($current) && isset($current['token']) && hash_equals((string) $lock['token'], (string) $current['token'])) {
+            delete_option($lock['name']);
+        }
+    }
+
     /**
      * イベントIDを短時間だけ予約する。
      * 戻り値: string=予約済み、false=重複、null=キャッシュ保存失敗。
@@ -1768,31 +1798,39 @@ final class Ship_Modal
 
         // APCu等の外部キャッシュがCLI／低機能環境で使えない場合も、
         // DBスキーマを追加せず、モーダル単位の非autoload optionへ短期保存する。
-        $option_name = 'ship_modal_event_dedup_' . absint($post_id);
-        $event_hash = substr(hash('sha256', $key), 0, 40);
-        $now = time();
-        $stored = get_option($option_name, array());
-        $stored = is_array($stored) ? $stored : array();
-        foreach ($stored as $stored_hash => $stored_at) {
-            if (! is_numeric($stored_at) || (int) $stored_at < $now - $ttl) {
-                unset($stored[$stored_hash]);
+        $lock = $this->acquire_event_option_lock($post_id);
+        if (! is_array($lock)) {
+            return null;
+        }
+        try {
+            $option_name = 'ship_modal_event_dedup_' . absint($post_id);
+            $event_hash = substr(hash('sha256', $key), 0, 40);
+            $now = time();
+            $stored = get_option($option_name, array());
+            $stored = is_array($stored) ? $stored : array();
+            foreach ($stored as $stored_hash => $stored_at) {
+                if (! is_numeric($stored_at) || (int) $stored_at < $now - $ttl) {
+                    unset($stored[$stored_hash]);
+                }
             }
-        }
-        if (isset($stored[$event_hash])) {
-            return false;
-        }
-        if (count($stored) >= 200) {
-            asort($stored, SORT_NUMERIC);
-            $stored = array_slice($stored, -199, 199, true);
-        }
-        $stored[$event_hash] = $now;
-        if (false === update_option($option_name, $stored, false)) {
-            $verified = get_option($option_name, array());
-            if (! is_array($verified) || ! isset($verified[$event_hash])) {
-                return null;
+            if (isset($stored[$event_hash])) {
+                return false;
             }
+            if (count($stored) >= 200) {
+                asort($stored, SORT_NUMERIC);
+                $stored = array_slice($stored, -199, 199, true);
+            }
+            $stored[$event_hash] = $now;
+            if (false === update_option($option_name, $stored, false)) {
+                $verified = get_option($option_name, array());
+                if (! is_array($verified) || ! isset($verified[$event_hash])) {
+                    return null;
+                }
+            }
+            return 'option|' . $option_name . '|' . $event_hash;
+        } finally {
+            $this->release_event_option_lock($lock);
         }
-        return 'option|' . $option_name . '|' . $event_hash;
     }
 
     private function release_event_claim($key)
@@ -2188,6 +2226,10 @@ final class Ship_Modal
         if (false === $event_claim) {
             // sendBeacon/fetchの再送や、同じリクエストのリトライは一度だけ集計する。
             wp_send_json_success(array('recorded' => false, 'reason' => 'duplicate'));
+        }
+        if (null === $event_claim) {
+            // 重複排除を確保できない場合は、完全性を優先して集計を行わない。
+            wp_send_json_error(array('message' => 'event deduplication is unavailable'), 503);
         }
         $keys = array(
             'impression' => '_ship_modal_impressions',
