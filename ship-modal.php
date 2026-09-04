@@ -34,6 +34,9 @@ if (! defined('SHIP_MODAL_ENABLE_FULLSCREEN')) {
 if (! defined('SHIP_MODAL_ENABLE_SINGULAR_SCOPE')) {
     define('SHIP_MODAL_ENABLE_SINGULAR_SCOPE', false);
 }
+if (! defined('SHIP_MODAL_ENABLE_EXIT_INTENT')) {
+    define('SHIP_MODAL_ENABLE_EXIT_INTENT', false);
+}
 
 require_once SHIP_MODAL_DIR . 'includes/class-ship-modal.php';
 

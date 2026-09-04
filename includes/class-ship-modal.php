@@ -608,6 +608,16 @@ final class Ship_Modal
         return (bool) apply_filters('ship_modal_enable_singular_scope', (bool) $default);
     }
 
+    /**
+     * 離脱意図トリガーの管理画面での選択を許可するか返す。
+     * 保存済みのトリガー値と公開表示は、停止中も変更しない。
+     */
+    private function is_exit_intent_enabled()
+    {
+        $default = defined('SHIP_MODAL_ENABLE_EXIT_INTENT') ? SHIP_MODAL_ENABLE_EXIT_INTENT : false;
+        return (bool) apply_filters('ship_modal_enable_exit_intent', (bool) $default);
+    }
+
     public function hide_non_admin_menu()
     {
         if (! $this->can_manage_modal()) {
@@ -1160,6 +1170,17 @@ final class Ship_Modal
             $scope = 'front';
         }
         $trigger = $this->meta($post->ID, 'trigger', 'auto');
+        $exit_intent_enabled = $this->is_exit_intent_enabled();
+        $trigger_options = array(
+            'auto' => '遅延して自動表示',
+            'scroll' => 'スクロール到達で表示',
+            'manual' => 'ボタンから表示',
+        );
+        if ($exit_intent_enabled) {
+            $trigger_options['exit_intent'] = '離脱意図で表示（PCのみ）';
+        } elseif ('exit_intent' === $trigger) {
+            $trigger_options['exit_intent'] = array('label' => '離脱意図で表示（PCのみ・新規選択停止）', 'disabled' => true);
+        }
         $delay = max(0, (int) $this->meta($post->ID, 'delay', 2));
         $scroll_threshold = min(95, max(10, (int) $this->meta($post->ID, 'scroll_threshold', 50)));
         $frequency = $this->meta($post->ID, 'frequency', 'session');
@@ -1226,7 +1247,7 @@ final class Ship_Modal
                 </div>
             </td></tr>
             <tr><th><label for="ship-modal-trigger">起動方法</label></th><td>
-                <?php $this->select('trigger', $trigger, array('auto' => '遅延して自動表示', 'scroll' => 'スクロール到達で表示', 'exit_intent' => '離脱意図で表示（PCのみ）', 'manual' => 'ボタンから表示')); ?>
+                <?php $this->select('trigger', $trigger, $trigger_options); ?>
                 <div class="ship-modal-trigger-help" aria-label="起動方法の説明">
                     <div class="ship-modal-trigger-help__item" data-trigger="auto"><strong>遅延して自動表示</strong><span>ページを開いて指定秒数後に自動で表示します。</span></div>
                     <div class="ship-modal-trigger-help__item" data-trigger="scroll"><strong>スクロール到達で表示</strong><span>ページ全体の指定割合まで読んだ時点で表示します。</span></div>
@@ -1571,6 +1592,10 @@ final class Ship_Modal
         if ($this->is_fullscreen_enabled()) {
             $design_values[] = 'fullscreen';
         }
+        $trigger_values = array('auto', 'scroll', 'manual');
+        if ($this->is_exit_intent_enabled()) {
+            $trigger_values[] = 'exit_intent';
+        }
         $scope_values = array('front', 'selected', 'shortcode', 'all');
         if ($this->is_singular_scope_enabled()) {
             // 既存の並び順を維持しつつ、機能再開時に選択肢を戻す。
@@ -1581,7 +1606,7 @@ final class Ship_Modal
             'image_position' => array('top', 'left', 'right'),
             'design' => $design_values,
             'scope' => $scope_values,
-            'trigger' => array('auto', 'scroll', 'exit_intent', 'manual'),
+            'trigger' => $trigger_values,
             'trigger_position' => array('left', 'center', 'right'),
             'frequency' => array('always', 'session', 'day', 'once'),
         );
@@ -1600,6 +1625,9 @@ final class Ship_Modal
             if (! in_array($value, $values, true)) {
                 $locked_value = ('design' === $field && ! $this->is_fullscreen_enabled() && 'fullscreen' === $current_value)
                     || ('scope' === $field && ! $this->is_singular_scope_enabled() && 'singular' === $current_value);
+                if ('trigger' === $field && ! $this->is_exit_intent_enabled() && 'exit_intent' === $current_value) {
+                    $locked_value = true;
+                }
                 $value = $locked_value ? $current_value : (in_array($current_value, $values, true) ? $current_value : $default_value);
             }
             update_post_meta($post_id, '_ship_modal_' . $field, $value);

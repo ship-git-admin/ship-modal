@@ -39,11 +39,16 @@ WordPress向けのモーダル管理プラグインです。
 - ページャーの前後移動、ドット移動、左右矢印キー
 - GitHub Release Assetを配布元に限定した自動アップデート（Plugin Update Checker）
 
-## 現行の入力モード
+## 一時停止中の機能
 
-現行リリースでは運用方針により、管理画面の内容入力を画像専用に一時制限しています。既存のHTML・テキスト・ページャーの保存データは削除せず、公開表示も維持します。HTML等の入力を再開する場合は、プラグイン読込前に `SHIP_MODAL_IMAGE_ONLY_MODE` を `false` として定義するか、`ship_modal_image_only_mode` フィルターで `false` を返してください。
+運用方針により、現在は次の機能を管理画面で新規選択・入力できないようにしています。既存設定と保存データは削除せず、公開表示も維持します。
 
-管理画面の「フルスクリーン」と「投稿・固定ページ（全て）」も一時停止しています。既存設定は削除せず公開表示を維持し、新規設定では選択できません。再開する場合は、プラグイン読込前に `SHIP_MODAL_ENABLE_FULLSCREEN` / `SHIP_MODAL_ENABLE_SINGULAR_SCOPE` を `true` として定義するか、それぞれ `ship_modal_enable_fullscreen` / `ship_modal_enable_singular_scope` フィルターで `true` を返してください。
+- HTML・テキスト・ページャー入力（画像専用モード）
+- 表示レイアウト「フルスクリーン」
+- 表示対象「投稿・固定ページ（全て）」
+- 起動方法「離脱意図で表示（PCのみ）」
+
+再開する場合は、プラグイン読込前に `SHIP_MODAL_IMAGE_ONLY_MODE` / `SHIP_MODAL_ENABLE_FULLSCREEN` / `SHIP_MODAL_ENABLE_SINGULAR_SCOPE` / `SHIP_MODAL_ENABLE_EXIT_INTENT` を `false`（画像専用モード）または `true`（その他3機能）として定義するか、対応する `ship_modal_image_only_mode` / `ship_modal_enable_fullscreen` / `ship_modal_enable_singular_scope` / `ship_modal_enable_exit_intent` フィルターで切り替えてください。
 
 ショートコード: [ship_modal id="123"]
 
