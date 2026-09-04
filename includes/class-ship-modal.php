@@ -545,6 +545,7 @@ final class Ship_Modal
             wp_die('モーダル設定を操作する権限がありません。', 'Ship Modal', array('response' => 403));
         }
         $settings = $this->ga4_settings();
+        $image_only_mode = $this->is_image_only_mode();
         $saved = isset($_GET['ship_modal_settings_saved']) && '1' === sanitize_text_field(wp_unslash($_GET['ship_modal_settings_saved']));
         $invalid_measurement_id = isset($_GET['ship_modal_settings_error']) && 'measurement_id' === sanitize_key(wp_unslash($_GET['ship_modal_settings_error']));
         ?>
@@ -587,7 +588,7 @@ final class Ship_Modal
             </form>
             <div class="card ship-modal-settings-card">
                 <h2>送信されるイベント</h2>
-                <p><code>ship_modal_impression</code>（表示）、<code>ship_modal_click</code>（モーダル内リンク）、<code>ship_modal_close</code>（閉じる）、<code>ship_modal_page_view</code>（ページャー閲覧）を送信します。</p>
+                <p><code>ship_modal_impression</code>（表示）、<code>ship_modal_click</code>（モーダル内リンク）、<code>ship_modal_close</code>（閉じる）<?php if (! $image_only_mode) : ?>、<code>ship_modal_page_view</code>（ページャー閲覧）<?php endif; ?>を送信します。</p>
                 <p class="description">プレビュー中はGA4・dataLayer・プラグイン内部の計測を行いません。保存後、公開ページで確認してください。</p>
             </div>
         </div>
@@ -1053,6 +1054,7 @@ final class Ship_Modal
 
     public function render_stats_box($post)
     {
+        $image_only_mode = $this->is_image_only_mode();
         $impressions = (int) get_post_meta($post->ID, '_ship_modal_impressions', true);
         $clicks = (int) get_post_meta($post->ID, '_ship_modal_clicks', true);
         $closes = (int) get_post_meta($post->ID, '_ship_modal_closes', true);
@@ -1083,16 +1085,20 @@ final class Ship_Modal
         echo '<p><strong>クリック数：</strong> ' . number_format_i18n($clicks) . '</p>';
         echo '<p><strong>クリック率：</strong> ' . esc_html($rate) . '%</p>';
         echo '<p><strong>閉じる回数：</strong> ' . number_format_i18n($closes) . '</p>';
-        echo '<p><strong>ページャー閲覧数：</strong> ' . number_format_i18n($page_views) . '</p>';
+        if (! $image_only_mode) {
+            echo '<p><strong>ページャー閲覧数：</strong> ' . number_format_i18n($page_views) . '</p>';
+        }
         echo '</div>';
-        echo '<p class="description">ページャー閲覧数はページャーのページ表示・切り替えを記録します。画像＋HTMLなどページャーを使わないフレームでは0のままです。表示・クリック・閉じる・ページャー閲覧はプラグイン内に記録されます。GA4へ直接送信する場合は「モーダル」→「計測・GA4連携設定」でGA4測定ID（<code>G-XXXXXXXXXX</code>）を登録してください。GTMを使う場合は同設定で「GTMのdataLayerのみ」を選び、GTM側で各カスタムイベントをGA4イベントタグへ紐付ける設定が必要です。設定後は公開ページで動作を確認してください。日別集計の導入前から累計がある場合、全期間CSVには「日別導入前」として差分を補完します。</p>';
+        $page_view_description = $image_only_mode ? '' : 'ページャー閲覧数はページャーのページ表示・切り替えを記録します。';
+        echo '<p class="description">' . $page_view_description . '表示・クリック・閉じる' . ($image_only_mode ? '' : '・ページャー閲覧') . 'はプラグイン内に記録されます。GA4へ直接送信する場合は「モーダル」→「計測・GA4連携設定」でGA4測定ID（<code>G-XXXXXXXXXX</code>）を登録してください。GTMを使う場合は同設定で「GTMのdataLayerのみ」を選び、GTM側で各カスタムイベントをGA4イベントタグへ紐付ける設定が必要です。設定後は公開ページで動作を確認してください。日別集計の導入前から累計がある場合、全期間CSVには「日別導入前」として差分を補完します。</p>';
 
         echo '<h4 class="ship-modal-stats-heading">直近14日の日別集計</h4>';
         if ($daily) {
-            echo '<div class="ship-modal-stats-table-wrap"><table class="widefat striped ship-modal-stats-table"><thead><tr><th>日付</th><th>表示</th><th>クリック</th><th>CTR</th><th>閉じる</th><th>ページャー閲覧</th></tr></thead><tbody>';
+            $table_head = '<tr><th>日付</th><th>表示</th><th>クリック</th><th>CTR</th><th>閉じる</th>' . ($image_only_mode ? '' : '<th>ページャー閲覧</th>') . '</tr>';
+            echo '<div class="ship-modal-stats-table-wrap"><table class="widefat striped ship-modal-stats-table"><thead>' . $table_head . '</thead><tbody>';
             foreach ($daily as $date => $values) {
                 $daily_rate = $values['impression'] > 0 ? round(($values['click'] / $values['impression']) * 100, 1) : 0;
-                echo '<tr><td>' . esc_html($date) . '</td><td>' . number_format_i18n($values['impression']) . '</td><td>' . number_format_i18n($values['click']) . '</td><td>' . esc_html($daily_rate) . '%</td><td>' . number_format_i18n($values['close']) . '</td><td>' . number_format_i18n($values['page_view']) . '</td></tr>';
+                echo '<tr><td>' . esc_html($date) . '</td><td>' . number_format_i18n($values['impression']) . '</td><td>' . number_format_i18n($values['click']) . '</td><td>' . esc_html($daily_rate) . '%</td><td>' . number_format_i18n($values['close']) . '</td>' . ($image_only_mode ? '' : '<td>' . number_format_i18n($values['page_view']) . '</td>') . '</tr>';
             }
             echo '</tbody></table></div>';
         } else {
@@ -1100,7 +1106,7 @@ final class Ship_Modal
         }
 
         echo '<details class="ship-modal-stats-tools"><summary>CSV出力・計測リセット</summary>';
-        echo '<p class="description">期間を指定して、日別の表示・クリック・閉じる・ページャー閲覧をCSVでダウンロードできます。</p>';
+        echo '<p class="description">期間を指定して、日別の表示・クリック・閉じる' . ($image_only_mode ? '' : '・ページャー閲覧') . 'をCSVでダウンロードできます。</p>';
         $export_base_url = $this->admin_action_url(
             'ship_modal_export_stats',
             $post->ID,
