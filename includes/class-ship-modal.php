@@ -619,7 +619,8 @@ final class Ship_Modal
     private function render_button_fields($buttons, $max, $prefix)
     {
         $buttons = is_array($buttons) ? array_values($buttons) : array();
-        echo '<p class="description ship-modal-button-help">文言の改行は <code>&lt;br&gt;</code> を入力してください。「閉じる」を選んだボタンはURL不要です。長い文言は画面幅に合わせて折り返します。</p>';
+        $label_limits = $this->button_label_limits();
+        echo '<p class="description ship-modal-button-help">1行' . esc_html($label_limits['chars_per_line']) . '文字・最大' . esc_html($label_limits['lines']) . '行まで。改行は <code>&lt;br&gt;</code> を入力してください。「閉じる」を選んだボタンはURL不要です。超過分は保存時に自動調整されます。</p>';
         for ($index = 0; $index < $max; $index++) {
             $button = isset($buttons[$index]) && is_array($buttons[$index]) ? $buttons[$index] : array();
             $label = isset($button['label']) ? $button['label'] : '';
@@ -631,7 +632,10 @@ final class Ship_Modal
             ?>
             <div class="ship-modal-button-field">
                 <span class="ship-modal-button-field__number"><?php echo esc_html((string) ($index + 1)); ?></span>
-                <input type="text" name="<?php echo esc_attr($base . '[label]'); ?>" value="<?php echo esc_attr($label); ?>" placeholder="ボタン文言（改行は&lt;br&gt;）">
+                <div class="ship-modal-button-label-wrap">
+                    <input type="text" class="ship-modal-button-label" name="<?php echo esc_attr($base . '[label]'); ?>" value="<?php echo esc_attr($label); ?>" placeholder="ボタン文言（改行は&lt;br&gt;）" data-max-lines="<?php echo esc_attr($label_limits['lines']); ?>" data-max-chars-per-line="<?php echo esc_attr($label_limits['chars_per_line']); ?>">
+                    <span class="ship-modal-button-label-meta" aria-live="polite"></span>
+                </div>
                 <input type="url" class="ship-modal-button-url" name="<?php echo esc_attr($base . '[url]'); ?>" value="<?php echo esc_attr($url); ?>" placeholder="https://example.com/">
                 <select class="ship-modal-button-action" name="<?php echo esc_attr($base . '[action]'); ?>"><option value="link" <?php selected($action, 'link'); ?>>リンク</option><option value="close" <?php selected($action, 'close'); ?>>閉じる</option></select>
                 <select name="<?php echo esc_attr($base . '[style]'); ?>"><option value="primary" <?php selected($style, 'primary'); ?>>メイン</option><option value="secondary" <?php selected($style, 'secondary'); ?>>サブ</option></select>
@@ -639,6 +643,47 @@ final class Ship_Modal
             </div>
             <?php
         }
+    }
+
+    private function button_label_limits()
+    {
+        $limits = apply_filters('ship_modal_button_label_limits', array(
+            'lines' => 2,
+            'chars_per_line' => 10,
+        ));
+        $lines = isset($limits['lines']) ? absint($limits['lines']) : 2;
+        $chars_per_line = isset($limits['chars_per_line']) ? absint($limits['chars_per_line']) : 10;
+        return array(
+            'lines' => max(1, min(3, $lines)),
+            'chars_per_line' => max(4, min(30, $chars_per_line)),
+        );
+    }
+
+    private function truncate_text_chars($text, $limit)
+    {
+        $chars = preg_split('//u', (string) $text, -1, PREG_SPLIT_NO_EMPTY);
+        if (! is_array($chars)) {
+            return '';
+        }
+        return implode('', array_slice($chars, 0, absint($limit)));
+    }
+
+    private function normalize_button_label($raw_label)
+    {
+        $label = wp_kses((string) $raw_label, array('br' => array()));
+        $label = preg_replace('/\s*<br\s*\/?>\s*/i', '<br>', trim($label));
+        $lines = preg_split('/<br\s*\/?>/i', $label);
+        $limits = $this->button_label_limits();
+        if (! is_array($lines)) {
+            $lines = array($label);
+        }
+        $lines = array_slice($lines, 0, $limits['lines']);
+        $normalized_lines = array();
+        foreach ($lines as $line) {
+            $line = trim(wp_strip_all_tags($line));
+            $normalized_lines[] = $this->truncate_text_chars($line, $limits['chars_per_line']);
+        }
+        return implode('<br>', $normalized_lines);
     }
 
     public function render_content_box($post)
@@ -757,13 +802,15 @@ final class Ship_Modal
             <tr class="ship-modal-single-image-row"><th><label for="ship-modal-link_url">クリック先URL</label></th><td><input type="url" class="widefat" name="ship_modal_link_url" id="ship-modal-link_url" value="<?php echo esc_attr($link_url); ?>" placeholder="https://example.com/"><br><label><input type="checkbox" name="ship_modal_link_new_tab" value="1" <?php checked($link_new_tab, true); ?>> 別タブで開く</label><p class="description">空欄なら画像はリンクになりません。</p></td></tr>
             <?php if (! $image_only_mode) : ?>
             <tr class="ship-modal-hybrid-image-row"><th><label for="ship-modal-image_position">画像の位置</label></th><td><?php $this->select('image_position', $image_position, array('top' => '上', 'left' => '左', 'right' => '右')); ?></td></tr>
-            <tr class="ship-modal-buttons-row"><th>ボタン</th><td><p class="description">任意・最大3個。文言の改行は&lt;br&gt;で指定できます。長い文言は画面幅に合わせて折り返します。</p><?php $this->render_button_fields($buttons, 3, 'ship_modal_buttons'); ?></td></tr>
+            <tr class="ship-modal-buttons-row"><th>ボタン</th><td><p class="description">任意・最大3個。1行あたりの文字数と行数に上限があります。</p><?php $this->render_button_fields($buttons, 3, 'ship_modal_buttons'); ?></td></tr>
             <tr class="ship-modal-pages-row"><th>ページ</th><td><div id="ship-modal-pages"><?php foreach ($pages as $index => $page) { $this->render_page_row($index, is_array($page) ? $page : array()); } ?></div><p><button type="button" class="button" id="ship-modal-add-page">＋ ページを追加</button></p><p class="description">各ページに画像・見出し・本文・ボタンを個別に設定できます。画像だけのページも作成できます。</p></td></tr>
             <?php endif; ?>
             <tr><th><label for="ship-modal-design">表示レイアウト</label></th><td><?php $this->select('design', $design, array('center' => '中央カード', 'bottom' => '画面下部バナー', 'side' => '右下ポップアップ', 'fullscreen' => 'フルスクリーン')); ?><p class="description">モーダル全体の表示位置・形状を選択します。内容の形式は上の「フレーム」で設定します。</p></td></tr>
+            <?php if (! $image_only_mode) : ?>
             <tr><th><label for="ship-modal-border_radius">角丸（border-radius）</label></th><td><input type="number" min="0" max="48" step="1" class="small-text" name="ship_modal_border_radius" id="ship-modal-border_radius" value="<?php echo esc_attr($border_radius); ?>"> px <p class="description">0〜48px。0なら角丸なし。</p></td></tr>
             <tr><th><label for="ship-modal-padding">内側の余白（padding）</label></th><td><input type="number" min="0" max="64" step="1" class="small-text" name="ship_modal_padding" id="ship-modal-padding" value="<?php echo esc_attr($padding); ?>"> px <p class="description">0〜64px。画像のみフレームは画像をコンテナいっぱいに表示します。</p></td></tr>
-            <tr><th><label for="ship-modal-max_width">最大幅（max-width）</label></th><td><input type="number" min="280" max="1200" step="1" class="small-text" name="ship_modal_max_width" id="ship-modal-max_width" value="<?php echo esc_attr($max_width); ?>"> px <p class="description">280〜1200px、1px刻みで設定できます。スマホでは画面幅に合わせて縮小します。</p></td></tr>
+            <?php endif; ?>
+            <tr><th><label for="ship-modal-max_width">最大幅（max-width）</label></th><td><input type="number" min="280" max="1200" step="1" class="small-text" name="ship_modal_max_width" id="ship-modal-max_width" value="<?php echo esc_attr($max_width); ?>"> px <p class="description">280〜1200px、1px刻みで設定できます。基本画像を選択するとPC用画像の横幅に合わせて自動設定します（推奨）。必要なら保存前に手動変更でき、スマホでは画面幅に合わせて縮小します。</p></td></tr>
             <?php if (! $image_only_mode) : ?><tr><th><label for="ship-modal-custom-css">上級者向け</label></th><td><details class="ship-modal-advanced-settings"><summary>このモーダル専用のCustom CSS</summary><textarea class="large-text code" rows="8" name="ship_modal_custom_css" id="ship-modal-custom-css" spellcheck="false"><?php echo esc_textarea($custom_css); ?></textarea><p class="description">このモーダルだけに適用するCSSを入力できます。<code>.ship-modal--id-<?php echo absint($post->ID); ?></code> を先頭に付けて指定してください。<code>&lt;style&gt;</code>タグは不要です。保存後に公開ページで必ず確認してください。</p></details></td></tr><?php endif; ?>
         </table>
         <?php if (! $image_only_mode) : ?><script type="text/html" id="ship-modal-page-template"><?php $this->render_page_row('__INDEX__', array()); ?></script><?php endif; ?>
@@ -772,7 +819,17 @@ final class Ship_Modal
 
     public function render_display_box($post)
     {
-        $scope = $this->meta($post->ID, 'scope', 'all');
+        $scope = $this->meta($post->ID, 'scope', 'front');
+        $scope_options = array(
+            'front' => 'トップページのみ',
+            'singular' => '投稿・固定ページ（全て）',
+            'selected' => '指定ページのみ',
+            'shortcode' => 'ショートコードのみ',
+            'all' => '全ページ（注意）',
+        );
+        if (! isset($scope_options[$scope])) {
+            $scope = 'front';
+        }
         $trigger = $this->meta($post->ID, 'trigger', 'auto');
         $delay = max(0, (int) $this->meta($post->ID, 'delay', 2));
         $scroll_threshold = min(95, max(10, (int) $this->meta($post->ID, 'scroll_threshold', 50)));
@@ -790,6 +847,7 @@ final class Ship_Modal
         if (! in_array($trigger_position, array('left', 'center', 'right'), true)) {
             $trigger_position = 'right';
         }
+        $button_label_limits = $this->button_label_limits();
         $target_ids = array_values(array_filter(array_map('absint', (array) $this->meta($post->ID, 'target_ids', array()))));
         $targetable_types = $this->targetable_post_types();
         $selected_posts = $target_ids ? get_posts(array(
@@ -803,10 +861,11 @@ final class Ship_Modal
         <table class="form-table ship-modal-form-table">
             <tr><th>表示対象</th><td>
                 <div class="ship-modal-scope-options" role="radiogroup" aria-label="表示対象">
-                    <?php foreach (array('all' => '全ページ', 'front' => 'トップページのみ', 'singular' => '投稿・固定ページ（全て）', 'selected' => '指定ページのみ', 'shortcode' => 'ショートコードのみ') as $scope_value => $scope_label) : ?>
-                        <label><input type="radio" name="ship_modal_scope" value="<?php echo esc_attr($scope_value); ?>" <?php checked($scope, $scope_value); ?>> <?php echo esc_html($scope_label); ?></label>
+                    <?php foreach ($scope_options as $scope_value => $scope_label) : ?>
+                        <label class="<?php echo 'all' === $scope_value ? 'ship-modal-scope-option--all' : ''; ?>"><input type="radio" name="ship_modal_scope" value="<?php echo esc_attr($scope_value); ?>" <?php checked($scope, $scope_value); ?>> <?php echo esc_html($scope_label); ?></label>
                     <?php endforeach; ?>
                 </div>
+                <p class="description ship-modal-scope-warning">新規モーダルの初期値は「トップページのみ」です。「全ページ（注意）」はサイト全体に表示されるため、必要な場合だけ選択してください。</p>
                 <div class="ship-modal-target-picker">
                     <div class="ship-modal-target-picker__heading"><strong>指定ページを追加</strong><span class="ship-modal-target-count" aria-live="polite"></span></div>
                     <div class="ship-modal-target-search-row"><input type="search" id="ship-modal-target-search" class="widefat" placeholder="ページ名・記事タイトルで検索（2文字以上）"><select id="ship-modal-target-post-type"><option value="">すべての種類</option><?php foreach ($targetable_types as $target_type => $target_type_object) : ?><option value="<?php echo esc_attr($target_type); ?>"><?php echo esc_html($target_type_object->labels->name); ?></option><?php endforeach; ?></select></div>
@@ -832,7 +891,7 @@ final class Ship_Modal
             </td></tr>
             <tr class="ship-modal-delay-row"><th><label for="ship-modal-delay">表示までの秒数</label></th><td><input type="number" min="0" max="120" step="1" class="small-text" name="ship_modal_delay" id="ship-modal-delay" value="<?php echo esc_attr($delay); ?>"> 秒</td></tr>
             <tr class="ship-modal-scroll-row"><th><label for="ship-modal-scroll_threshold">スクロール到達率</label></th><td><input type="number" min="10" max="95" step="5" class="small-text" name="ship_modal_scroll_threshold" id="ship-modal-scroll_threshold" value="<?php echo esc_attr($scroll_threshold); ?>"> ％<p class="description">ページ全体の指定割合までスクロールすると表示します。</p></td></tr>
-            <tr class="ship-modal-trigger-text-row"><th><label for="ship-modal-trigger_text">ボタン文言</label></th><td><input type="text" class="widefat" name="ship_modal_trigger_text" id="ship-modal-trigger_text" value="<?php echo esc_attr($trigger_text); ?>"></td></tr>
+            <tr class="ship-modal-trigger-text-row"><th><label for="ship-modal-trigger_text">ボタン文言</label></th><td><div class="ship-modal-button-label-wrap"><input type="text" class="widefat ship-modal-button-label" name="ship_modal_trigger_text" id="ship-modal-trigger_text" value="<?php echo esc_attr($trigger_text); ?>" data-max-lines="<?php echo esc_attr($button_label_limits['lines']); ?>" data-max-chars-per-line="<?php echo esc_attr($button_label_limits['chars_per_line']); ?>"><span class="ship-modal-button-label-meta" aria-live="polite"></span></div><p class="description">1行<?php echo esc_html($button_label_limits['chars_per_line']); ?>文字・最大<?php echo esc_html($button_label_limits['lines']); ?>行まで。改行は&lt;br&gt;を入力してください。超過分は保存時に自動調整されます。</p></td></tr>
             <tr class="ship-modal-trigger-style-row"><th>ボタンデザイン</th><td><label>背景色 <input type="color" name="ship_modal_trigger_bg_color" value="<?php echo esc_attr($trigger_bg_color); ?>"></label> <label>文字色 <input type="color" name="ship_modal_trigger_text_color" value="<?php echo esc_attr($trigger_text_color); ?>"></label><br><label for="ship-modal-trigger_position">配置 </label><?php $this->select('trigger_position', $trigger_position, array('left' => '左下', 'center' => '中央下', 'right' => '右下')); ?><p class="description">手動表示ボタンの背景色・文字色・画面下部の配置を設定します。</p></td></tr>
             <tr><th><label for="ship-modal-frequency">表示頻度</label></th><td><?php $this->select('frequency', $frequency, array('always' => '毎回', 'session' => 'セッションごとに1回', 'day' => '1日1回', 'once' => 'ユーザーごとに1回')); ?></td></tr>
             <tr><th><label for="ship-modal-start_at">開始日時</label></th><td><input type="datetime-local" class="widefat" name="ship_modal_start_at" id="ship-modal-start_at" value="<?php echo esc_attr($start); ?>"><p class="description">空欄ならすぐ表示</p></td></tr>
@@ -999,10 +1058,18 @@ final class Ship_Modal
         $image_alt = isset($_POST['ship_modal_image_alt']) ? sanitize_text_field(wp_unslash($_POST['ship_modal_image_alt'])) : $this->meta($post_id, 'image_alt', '');
         $buttons = $this->normalize_buttons(isset($_POST['ship_modal_buttons']) ? $_POST['ship_modal_buttons'] : $this->meta($post_id, 'buttons', array()), 3, 'ボタン', $errors);
 
-        $border_radius = isset($_POST['ship_modal_border_radius']) ? min(48, max(0, absint($_POST['ship_modal_border_radius']))) : 0;
-        $padding = isset($_POST['ship_modal_padding']) ? min(64, max(0, absint($_POST['ship_modal_padding']))) : 20;
-        $max_width = isset($_POST['ship_modal_max_width']) ? min(1200, max(280, absint($_POST['ship_modal_max_width']))) : 620;
-        $scope = isset($_POST['ship_modal_scope']) ? sanitize_key(wp_unslash($_POST['ship_modal_scope'])) : 'all';
+        $border_radius = isset($_POST['ship_modal_border_radius'])
+            ? min(48, max(0, absint($_POST['ship_modal_border_radius'])))
+            : min(48, max(0, (int) $this->meta($post_id, 'border_radius', 0)));
+        $padding = isset($_POST['ship_modal_padding'])
+            ? min(64, max(0, absint($_POST['ship_modal_padding'])))
+            : min(64, max(0, (int) $this->meta($post_id, 'padding', 20)));
+        $max_width = isset($_POST['ship_modal_max_width'])
+            ? min(1200, max(280, absint($_POST['ship_modal_max_width'])))
+            : min(1200, max(280, (int) $this->meta($post_id, 'max_width', 620)));
+        $scope = isset($_POST['ship_modal_scope'])
+            ? sanitize_key(wp_unslash($_POST['ship_modal_scope']))
+            : $this->meta($post_id, 'scope', 'front');
         $raw_target_ids = isset($_POST['ship_modal_target_ids']) && is_array($_POST['ship_modal_target_ids']) ? $_POST['ship_modal_target_ids'] : array();
         if ('hybrid' === $type) {
             // 必須・文字数による保存ブロックは行わない。
@@ -1069,7 +1136,10 @@ final class Ship_Modal
             $value = isset($_POST['ship_modal_' . $field])
                 ? wp_unslash($_POST['ship_modal_' . $field])
                 : $this->meta($post_id, $field, '');
-            update_post_meta($post_id, '_ship_modal_' . $field, sanitize_text_field($value));
+            $value = 'trigger_text' === $field
+                ? $this->normalize_button_label($value)
+                : sanitize_text_field($value);
+            update_post_meta($post_id, '_ship_modal_' . $field, $value);
         }
         // 画像専用モード中は、画面から隠している内容データを一切上書きしない。
         // 将来フラグをfalseへ戻した時に、既存のHTML等をそのまま再編集できるようにする。
@@ -1122,7 +1192,7 @@ final class Ship_Modal
             'content_type' => $allowed_types,
             'image_position' => array('top', 'left', 'right'),
             'design' => array('center', 'bottom', 'side', 'fullscreen'),
-            'scope' => array('all', 'front', 'singular', 'selected', 'shortcode'),
+            'scope' => array('front', 'singular', 'selected', 'shortcode', 'all'),
             'trigger' => array('auto', 'scroll', 'exit_intent', 'manual'),
             'trigger_position' => array('left', 'center', 'right'),
             'frequency' => array('always', 'session', 'day', 'once'),
@@ -1198,8 +1268,8 @@ final class Ship_Modal
     public function render_admin_column($column, $post_id)
     {
         if ('ship_modal_scope' === $column) {
-            $labels = array('all' => '全ページ', 'front' => 'トップ', 'singular' => '投稿・固定ページ（全て）', 'selected' => '指定ページ', 'shortcode' => 'ショートコード');
-            $scope = $this->meta($post_id, 'scope', 'all');
+            $labels = array('front' => 'トップ', 'singular' => '投稿・固定ページ（全て）', 'selected' => '指定ページ', 'shortcode' => 'ショートコード', 'all' => '全ページ（注意）');
+            $scope = $this->meta($post_id, 'scope', 'front');
             echo esc_html(isset($labels[$scope]) ? $labels[$scope] : $scope);
         } elseif ('ship_modal_schedule' === $column) {
             $start = $this->meta($post_id, 'start_at');
@@ -1327,7 +1397,7 @@ final class Ship_Modal
 
     private function is_scope_visible($post_id)
     {
-        $scope = $this->meta($post_id, 'scope', 'all');
+        $scope = $this->meta($post_id, 'scope', 'front');
         if ('shortcode' === $scope) {
             return false;
         }
@@ -1609,7 +1679,7 @@ final class Ship_Modal
             }
             $trigger_class = $shortcode ? 'ship-modal-trigger ship-modal-trigger--inline-' . $trigger_position : 'ship-modal-trigger ship-modal-trigger--floating ship-modal-trigger--floating-' . $trigger_position;
             $trigger_style = '--ship-modal-trigger-bg:' . $trigger_bg_color . ';--ship-modal-trigger-color:' . $trigger_text_color . ';';
-            echo '<button type="button" class="' . esc_attr($trigger_class) . '" style="' . esc_attr($trigger_style) . '" data-ship-modal-target="' . esc_attr($modal_id) . '" aria-haspopup="dialog" aria-controls="' . esc_attr($modal_id) . '" aria-expanded="false" hidden>' . esc_html($button_text) . '</button>';
+            echo '<button type="button" class="' . esc_attr($trigger_class) . '" style="' . esc_attr($trigger_style) . '" data-ship-modal-target="' . esc_attr($modal_id) . '" aria-haspopup="dialog" aria-controls="' . esc_attr($modal_id) . '" aria-expanded="false" hidden>' . wp_kses($button_text, array('br' => array())) . '</button>';
         }
         ?>
         <?php if ($custom_css !== '') : ?><style id="ship-modal-custom-css-<?php echo absint($post_id); ?>"><?php echo $custom_css; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?></style><?php endif; ?>

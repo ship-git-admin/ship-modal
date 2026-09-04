@@ -6,7 +6,7 @@
   var targetSearchTimer = null;
 
   function currentScope() {
-    return $('input[name="ship_modal_scope"]:checked').val() || 'all';
+    return $('input[name="ship_modal_scope"]:checked').val() || 'front';
   }
 
   function refreshTriggerHelp(trigger) {
@@ -46,6 +46,59 @@
     }
     $counter.text(value.length + ' / ' + max + '文字');
     $counter.toggleClass('is-over', value.length > max);
+  }
+
+  function toChars(value) {
+    var chars = [];
+    var text = String(value || '');
+    for (var index = 0; index < text.length; index++) {
+      var code = text.charCodeAt(index);
+      if (code >= 0xD800 && code <= 0xDBFF && index + 1 < text.length) {
+        chars.push(text.slice(index, index + 2));
+        index++;
+      } else {
+        chars.push(text.charAt(index));
+      }
+    }
+    return chars;
+  }
+
+  function buttonLabelLines(value) {
+    return String(value || '').split(/<br\s*\/?>/i).map(function (line) {
+      return line.replace(/<[^>]*>/g, '');
+    });
+  }
+
+  function updateButtonLabelMeta(field) {
+    var $field = $(field);
+    var maxLines = parseInt($field.attr('data-max-lines'), 10) || 2;
+    var maxChars = parseInt($field.attr('data-max-chars-per-line'), 10) || 10;
+    var lines = buttonLabelLines($field.val());
+    var lengths = lines.map(function (line) { return toChars(line).length; });
+    var maxLineLength = lengths.length ? Math.max.apply(Math, lengths) : 0;
+    var total = lengths.reduce(function (sum, length) { return sum + length; }, 0);
+    var over = lines.length > maxLines || maxLineLength > maxChars;
+    var $meta = $field.siblings('.ship-modal-button-label-meta');
+    if (!$meta.length) {
+      $meta = $('<span class="ship-modal-button-label-meta" aria-live="polite"></span>');
+      $field.after($meta);
+    }
+    $meta.text('上限 ' + maxChars + '文字/行・' + maxLines + '行（現在 ' + maxLineLength + '文字/行・' + lines.length + '行／合計' + total + '文字）');
+    $meta.toggleClass('is-over', over);
+  }
+
+  function normalizeButtonLabelField(field) {
+    var $field = $(field);
+    var maxLines = parseInt($field.attr('data-max-lines'), 10) || 2;
+    var maxChars = parseInt($field.attr('data-max-chars-per-line'), 10) || 10;
+    var lines = buttonLabelLines($field.val()).slice(0, maxLines).map(function (line) {
+      return toChars(line).slice(0, maxChars).join('');
+    });
+    var normalized = lines.join('<br>');
+    if (normalized !== String($field.val() || '')) {
+      $field.val(normalized);
+    }
+    updateButtonLabelMeta($field);
   }
 
   function refreshButtonActions(container) {
@@ -144,8 +197,11 @@
   $(function () {
     refreshRows();
     $('[maxlength]').each(function () { updateCounter(this); });
+    $('.ship-modal-button-label').each(function () { updateButtonLabelMeta(this); });
     refreshButtonActions(document);
     $(document).on('input', '[maxlength]', function () { updateCounter(this); });
+    $(document).on('input', '.ship-modal-button-label', function () { updateButtonLabelMeta(this); });
+    $(document).on('blur', '.ship-modal-button-label', function () { normalizeButtonLabelField(this); });
     $(document).on('change', '.ship-modal-button-action', function () { refreshButtonActions($(this).closest('.ship-modal-button-field')); });
     $('#ship-modal-content_type, #ship-modal-trigger, #ship-modal-target-post-type').on('change', refreshRows);
     $('input[name="ship_modal_scope"]').on('change', function () {
@@ -217,6 +273,15 @@
         $('#' + previewId).empty().append(
           $('<img alt="" style="max-width:100%;height:auto;">').attr('src', attachment.url)
         );
+        if (targetId === 'ship-modal-image-id') {
+          var imageWidth = parseInt(attachment.width, 10);
+          if (!imageWidth && attachment.sizes && attachment.sizes.full) {
+            imageWidth = parseInt(attachment.sizes.full.width, 10);
+          }
+          if (imageWidth > 0 && $('#ship-modal-max_width').length) {
+            $('#ship-modal-max_width').val(Math.max(280, Math.min(1200, imageWidth))).trigger('input').trigger('change');
+          }
+        }
         if (targetId === 'ship-modal-image-id' && !$.trim($('#ship-modal-image-alt').val() || '') && attachment.alt) {
           $('#ship-modal-image-alt').val(attachment.alt);
         }

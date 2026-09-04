@@ -3,7 +3,7 @@ Contributors: shipinc
 Requires at least: 4.8
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.7.2
+Stable tag: 1.7.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -24,6 +24,13 @@ HTML、画像、画像＋テキスト、ページャー、表示期間、表示�
 3. 「モーダル」から内容と表示設定を登録します。
 
 == Changelog ==
+
+= 1.7.3 =
+* ボタン文言を1行10文字・最大2行に制限し、`<br>`による改行と入力中の文字数表示に対応。
+* 新規モーダルの表示対象初期値をトップページのみに変更。
+* 「全ページ」を表示対象の右端へ移動し、注意表示を追加。
+* 画像専用モードでは角丸・内側余白の入力欄を一時非表示にし、既存値は保持。
+* 基本画像選択時に画像幅を最大幅へ自動入力し、手動変更も可能にした。
 
 = 1.7.2 =
 * 画像専用モードで画像フィールドがcontent_typeの値に左右されず表示されるよう修正。
