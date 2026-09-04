@@ -11,17 +11,27 @@
   var gtagConfiguredIds = {};
   var shipModalQueuedGtagEntries = [];
   var backgroundInertState = [];
-  var ga4ConsentGranted = config.ga4Enabled !== false;
+  function isAnalyticsConsentGranted(value) {
+    // wp_localize_script()はbooleanを文字列へ変換するため、false/0/空文字も未同意として扱う。
+    if (typeof value === 'undefined' || value === null) return true;
+    return value === true || value === 1 || value === '1' || value === 'true' || value === 'granted';
+  }
+
+  var ga4ConsentGranted = isAnalyticsConsentGranted(config.ga4Enabled);
 
   function analyticsConsentGranted() {
-    return ga4ConsentGranted && config.ga4Enabled !== false;
+    return ga4ConsentGranted && isAnalyticsConsentGranted(config.ga4Enabled);
   }
 
   function setAnalyticsConsent(granted) {
-    ga4ConsentGranted = granted === true || granted === 1 || granted === '1' || granted === 'true' || granted === 'granted';
+    ga4ConsentGranted = isAnalyticsConsentGranted(granted);
     // フルページキャッシュ下でもCMPの変更を以後のイベントへ反映する。
     config.ga4Enabled = ga4ConsentGranted;
-    if (!ga4ConsentGranted) clearQueuedGtagCommands();
+    if (!ga4ConsentGranted) {
+      clearQueuedGtagCommands();
+      // 再同意時に対象測定IDのconfigを必ず再送する。
+      gtagConfiguredIds = {};
+    }
   }
 
   // CMPからページ表示後に呼び出せるランタイムAPI。既存の名前空間は保持する。
@@ -301,7 +311,11 @@
         script.id = 'ship-modal-ga4-script';
         script.async = true;
         script.src = 'https://www.googletagmanager.com/gtag/js?id=' + encodeURIComponent(measurementId);
-        script.onload = function () { gtagScriptState = 'ready'; };
+        script.onload = function () {
+          gtagScriptState = 'ready';
+          // ロード完了後は送信済みコマンドへの参照を保持しない。
+          shipModalQueuedGtagEntries = [];
+        };
         script.onerror = function () { gtagScriptState = 'error'; };
         (document.head || document.documentElement).appendChild(script);
       }

@@ -3,7 +3,7 @@ Contributors: shipinc
 Requires at least: 4.8
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.8.4
+Stable tag: 1.8.5
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -14,7 +14,7 @@ HTML、画像、画像＋テキスト、ページャー、表示期間、表示�
 == Description ==
 
 管理者と編集者が編集できるモーダルを、全ページ・トップページ・投稿・指定ページ・ショートコードへ表示できます。
-日別集計、CSV出力、GTM/GA4向けdataLayerイベント、GitHub Release／タグからの自動更新に対応します。
+日別集計、CSV出力、GTM/GA4向けdataLayerイベント、GitHub Release Assetからの自動更新に対応します。
 表示頻度の「このタブで1回」「端末の現地日付で1日1回」「このブラウザで1回」は、ログインユーザー単位ではなく閲覧者側の保存領域を使います。
 期間指定は画面上の表示制御です。開始前の内容もHTMLソースには含まれるため、公開前の機密情報には使用しないでください。
 GA4の同意状態は `window.ShipModalConsent.setAnalyticsConsent(true)` / `false` でページ表示後も更新できます。未同意中はGoogleタグとdataLayerの双方へ送信しません。
@@ -26,6 +26,11 @@ GA4の同意状態は `window.ShipModalConsent.setAnalyticsConsent(true)` / `fal
 3. 「モーダル」から内容と表示設定を登録します。
 
 == Changelog ==
+
+= 1.8.5 =
+* 自動更新をRelease Asset必須・latest_release限定に変更し、タグZIPやmainブランチへのフォールバックを停止。
+* GA4同意撤回時に設定済み測定IDをリセットし、再同意後のconfig再送を保証。
+* wp_localize_script()経由の初期未同意値（false、0、空文字列）を正しく扱うよう修正。
 
 = 1.8.4 =
 * event_idを必須化し、空・不正なイベントを400で拒否。イベント単位のDB transient／option保存を廃止し、専用テーブルの一意キーで重複排除。

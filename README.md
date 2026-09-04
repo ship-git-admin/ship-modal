@@ -1,5 +1,11 @@
 # Ship Modal
 
+## 1.8.5での更新・同意制御の変更
+
+- 自動更新はGitHub Releaseと一致するクリーンなRelease Assetがある場合だけ検出します。タグZIPやmainブランチへフォールバックしません。
+- 同意撤回後に再同意した場合も、対象GA4測定IDの初期化を再送します。
+- CMPの初期値が`false`、`0`、空文字列の場合も未同意として扱います。
+
 ## 1.8.4でのセキュリティ・同意制御の変更
 
 - 公開イベントは`event_id`が必須です。空・不正な値はHTTP 400で拒否します。
@@ -31,7 +37,7 @@ WordPress向けのモーダル管理プラグインです。
 - GTM/GA4連携（既存gtagの自動検出、測定ID指定による直接送信、dataLayerフォールバック）
 - ESC、閉じるボタン、背景クリック、フォーカストラップ
 - ページャーの前後移動、ドット移動、左右矢印キー
-- GitHubのRelease／タグを配布元に限定した自動アップデート（Plugin Update Checker）
+- GitHub Release Assetを配布元に限定した自動アップデート（Plugin Update Checker）
 
 ## 現行の入力モード
 

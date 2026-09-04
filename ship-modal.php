@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Ship Modal
  * Description: HTML・画像バナー・期間指定・表示頻度・計測に対応したモーダル管理プラグイン。
- * Version: 1.8.4
+ * Version: 1.8.5
  * Requires at least: 4.8
  * Requires PHP: 7.4
  * Author: Ship Inc.
@@ -14,7 +14,7 @@ if (! defined('ABSPATH')) {
     exit;
 }
 
-define('SHIP_MODAL_VERSION', '1.8.4');
+define('SHIP_MODAL_VERSION', '1.8.5');
 define('SHIP_MODAL_FILE', __FILE__);
 define('SHIP_MODAL_DIR', plugin_dir_path(__FILE__));
 define('SHIP_MODAL_URL', plugin_dir_url(__FILE__));
@@ -40,18 +40,18 @@ if (file_exists(SHIP_MODAL_DIR . 'lib/plugin-update-checker/plugin-update-checke
         'ship-modal'
     );
     $ship_modal_update_checker->setBranch('main');
-    // 可変なmainブランチを直接配布せず、不変のRelease／タグだけを検出する。
-    $ship_modal_update_checker->addFilter('vcs_update_detection_strategies', function ($strategies) {
-        $release_strategies = array();
-        foreach (array('latest_release', 'latest_tag') as $strategy_name) {
-            if (isset($strategies[$strategy_name])) {
-                $release_strategies[$strategy_name] = $strategies[$strategy_name];
-            }
-        }
-        return $release_strategies;
+    $ship_modal_update_api = $ship_modal_update_checker->getVcsApi();
+    // 可変なmainブランチやタグZIPへフォールバックせず、Releaseだけを検出する。
+    $ship_modal_update_checker->addFilter('vcs_update_detection_strategies', static function ($strategies) {
+        return isset($strategies['latest_release'])
+            ? array('latest_release' => $strategies['latest_release'])
+            : array();
     });
-    if (method_exists($ship_modal_update_checker->getVcsApi(), 'enableReleaseAssets')) {
-        // 命名規則に合うRelease Assetがあれば優先する。無い場合はタグのZIPへ戻す。
-        $ship_modal_update_checker->getVcsApi()->enableReleaseAssets('/^ship-modal(?:-[0-9.]+)?\.zip$/i');
+    if (method_exists($ship_modal_update_api, 'enableReleaseAssets')) {
+        // 指定AssetがないReleaseは更新候補にせず、GitHub自動生成ZIPにも戻さない。
+        $ship_modal_update_api->enableReleaseAssets(
+            '/^ship-modal-[0-9]+\.[0-9]+\.[0-9]+\.zip$/',
+            $ship_modal_update_api::REQUIRE_RELEASE_ASSETS
+        );
     }
 }
