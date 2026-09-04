@@ -1265,8 +1265,8 @@ final class Ship_Modal
                 <div class="ship-modal-trigger-help" aria-label="起動方法の説明">
                     <div class="ship-modal-trigger-help__item" data-trigger="auto"><strong>遅延して自動表示</strong><span>ページを開いて指定秒数後に自動で表示します。</span></div>
                     <div class="ship-modal-trigger-help__item" data-trigger="scroll"><strong>スクロール到達で表示</strong><span>ページ全体の指定割合まで読んだ時点で表示します。</span></div>
-                    <div class="ship-modal-trigger-help__item" data-trigger="exit_intent"><strong>離脱意図で表示（PCのみ）</strong><span>マウスをブラウザ上端へ移動した時に表示します。スマホでは動作しません。</span></div>
-                    <div class="ship-modal-trigger-help__item" data-trigger="manual"><strong>ボタンから表示</strong><span>ページ上の専用ボタンを押した時だけ表示します。</span></div>
+                    <?php if ($exit_intent_enabled) : ?><div class="ship-modal-trigger-help__item" data-trigger="exit_intent"><strong>離脱意図で表示（PCのみ）</strong><span>マウスをブラウザ上端へ移動した時に表示します。スマホでは動作しません。</span></div><?php endif; ?>
+                    <?php if ($this->is_manual_trigger_enabled()) : ?><div class="ship-modal-trigger-help__item" data-trigger="manual"><strong>ボタンから表示</strong><span>ページ上の専用ボタンを押した時だけ表示します。</span></div><?php endif; ?>
                 </div>
                 <p class="description">表示期間・表示頻度・表示対象の条件と組み合わせて動作します。戻るボタンの履歴フックは、誤操作・アクセシビリティ・検索評価への影響があるため対応していません。</p>
             </td></tr>
