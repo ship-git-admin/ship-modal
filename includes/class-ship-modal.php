@@ -1021,12 +1021,8 @@ final class Ship_Modal
         $form_state = get_transient($form_state_key);
         if (! is_array($form_state)) {
             $form_state = get_post_meta($post->ID, '_ship_modal_form_state_' . get_current_user_id(), true);
-            if (is_array($form_state)) {
-                delete_post_meta($post->ID, '_ship_modal_form_state_' . get_current_user_id());
-            }
         }
         if (is_array($form_state)) {
-            delete_transient($form_state_key);
             $type = isset($form_state['type']) ? $form_state['type'] : $type;
             $html = isset($form_state['html']) ? $form_state['html'] : $html;
             $heading = isset($form_state['heading']) ? $form_state['heading'] : $heading;
@@ -1169,6 +1165,22 @@ final class Ship_Modal
         $frequency = $this->meta($post->ID, 'frequency', 'session');
         $start = $this->meta($post->ID, 'start_at');
         $end = $this->meta($post->ID, 'end_at');
+        $form_state_key = 'ship_modal_form_' . get_current_user_id() . '_' . $post->ID;
+        $form_state = get_transient($form_state_key);
+        if (! is_array($form_state)) {
+            $form_state = get_post_meta($post->ID, '_ship_modal_form_state_' . get_current_user_id(), true);
+        }
+        if (is_array($form_state)) {
+            // 保存エラー時は入力した日時をそのまま再表示し、修正しやすくする。
+            if (isset($form_state['start_at'])) {
+                $start = sanitize_text_field($form_state['start_at']);
+            }
+            if (isset($form_state['end_at'])) {
+                $end = sanitize_text_field($form_state['end_at']);
+            }
+            delete_transient($form_state_key);
+            delete_post_meta($post->ID, '_ship_modal_form_state_' . get_current_user_id());
+        }
         $show_close = $this->meta($post->ID, 'show_close', '1');
         $close_overlay = $this->meta($post->ID, 'close_overlay', '1');
         $show_backdrop = $this->meta($post->ID, 'show_backdrop', '1');
@@ -1446,6 +1458,13 @@ final class Ship_Modal
         }
         // ページ数による保存ブロックは行わない。
 
+        $schedule_warnings = array();
+        $schedule_errors = array();
+        $schedule_values = $this->normalize_schedule_values($post_id, $schedule_warnings, $schedule_errors);
+        if ($schedule_errors) {
+            $errors = array_merge($errors, $schedule_errors);
+        }
+
         if ($errors) {
             $form_key = 'ship_modal_form_' . get_current_user_id() . '_' . $post_id;
             $form_state = array(
@@ -1457,6 +1476,8 @@ final class Ship_Modal
                 'mobile_image_id' => $mobile_image_id,
                 'image_alt' => $image_alt,
                 'link_url' => isset($_POST['ship_modal_link_url']) ? esc_url_raw(wp_unslash($_POST['ship_modal_link_url'])) : $this->meta($post_id, 'link_url', ''),
+                'start_at' => isset($_POST['ship_modal_start_at']) ? sanitize_text_field(wp_unslash($_POST['ship_modal_start_at'])) : $this->meta($post_id, 'start_at', ''),
+                'end_at' => isset($_POST['ship_modal_end_at']) ? sanitize_text_field(wp_unslash($_POST['ship_modal_end_at'])) : $this->meta($post_id, 'end_at', ''),
                 'buttons' => isset($_POST['ship_modal_buttons']) && is_array($_POST['ship_modal_buttons']) ? wp_unslash($_POST['ship_modal_buttons']) : $buttons,
                 'pages' => isset($_POST['ship_modal_pages']) && is_array($_POST['ship_modal_pages']) ? wp_unslash($_POST['ship_modal_pages']) : $pages,
                 'custom_css' => $custom_css,
@@ -1475,8 +1496,6 @@ final class Ship_Modal
         delete_post_meta($post_id, '_ship_modal_form_state_' . get_current_user_id());
         delete_post_meta($post_id, '_ship_modal_errors_' . get_current_user_id());
 
-        $schedule_warnings = array();
-        $schedule_values = $this->normalize_schedule_values($post_id, $schedule_warnings);
         foreach (array('link_url', 'trigger_text', 'start_at', 'end_at') as $field) {
             if (isset($schedule_values[$field])) {
                 update_post_meta($post_id, '_ship_modal_' . $field, $schedule_values[$field]);
@@ -1784,7 +1803,7 @@ final class Ship_Modal
         return is_numeric($gmt_timestamp) ? (int) $gmt_timestamp : 0;
     }
 
-    private function normalize_schedule_value($value, $fallback, $label, &$warnings)
+    private function normalize_schedule_value($value, $fallback, $label, &$warnings, &$errors)
     {
         $value = sanitize_text_field((string) $value);
         if ($value === '') {
@@ -1794,10 +1813,11 @@ final class Ship_Modal
             return $value;
         }
         $warnings[] = $label . 'の形式が正しくないため、保存前の値を維持しました。';
+        $errors[] = $label . 'の形式が正しくありません。入力内容を確認してください。';
         return $fallback;
     }
 
-    private function normalize_schedule_values($post_id, &$warnings)
+    private function normalize_schedule_values($post_id, &$warnings, &$errors)
     {
         $stored = array(
             'start_at' => sanitize_text_field((string) $this->meta($post_id, 'start_at', '')),
@@ -1812,10 +1832,11 @@ final class Ship_Modal
         foreach (array('start_at', 'end_at') as $field) {
             $label = 'start_at' === $field ? '開始日時' : '終了日時';
             $raw = isset($_POST['ship_modal_' . $field]) ? wp_unslash($_POST['ship_modal_' . $field]) : $stored[$field];
-            $values[$field] = $this->normalize_schedule_value($raw, $stored[$field], $label, $warnings);
+            $values[$field] = $this->normalize_schedule_value($raw, $stored[$field], $label, $warnings, $errors);
         }
         if ($values['start_at'] !== '' && $values['end_at'] !== '' && $this->schedule_timestamp($values['start_at']) > $this->schedule_timestamp($values['end_at'])) {
             $warnings[] = '開始日時が終了日時より後のため、保存前の期間を維持しました。';
+            $errors[] = '開始日時は終了日時以前に設定してください。入力内容を修正してから保存してください。';
             $values = $stored;
             if ($values['start_at'] !== '' && $values['end_at'] !== '' && $this->schedule_timestamp($values['start_at']) > $this->schedule_timestamp($values['end_at'])) {
                 $values = array('start_at' => '', 'end_at' => '');
