@@ -3,7 +3,7 @@ Contributors: shipinc
 Requires at least: 4.8
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.8.1
+Stable tag: 1.8.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -24,6 +24,10 @@ HTML、画像、画像＋テキスト、ページャー、表示期間、表示�
 3. 「モーダル」から内容と表示設定を登録します。
 
 == Changelog ==
+
+= 1.8.2 =
+* 画像専用モードの管理画面では、現在使用しないページャー閲覧数の表示を非表示化。
+* ページャーの保存データ・内部計測・CSV出力は将来の機能再開に備えて保持。
 
 = 1.8.1 =
 * 画像専用モードでは自動生成のスクリーンリーダー用h2を出力せず、dialogのaria-labelでアクセシビリティを維持。
