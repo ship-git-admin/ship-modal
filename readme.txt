@@ -3,7 +3,7 @@ Contributors: shipinc
 Requires at least: 4.8
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.8.2
+Stable tag: 1.8.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -26,7 +26,8 @@ HTML、画像、画像＋テキスト、ページャー、表示期間、表示�
 
 == Changelog ==
 
-= Next =
+= 1.8.3 =
+* 公開計測の重複排除フォールバックを原子的ロックで保護し、背景のinert/aria-hidden隔離とGA4同意管理フィルターを追加。表示頻度の説明を実際の保存範囲に合わせて明確化。
 * GA4の自動送信をCookie同意管理と連携できる `ship_modal_ga4_enabled` フィルターを追加。表示頻度の管理画面表記を実際の保存範囲に合わせて明確化。
 * 公開計測へ発行時刻付きトークン、イベントIDの短期重複排除、匿名化レート制限を追加。
 * 非表示モーダルの画像を表示直前に読み込む方式へ変更。
