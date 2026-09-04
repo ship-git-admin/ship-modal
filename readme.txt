@@ -3,11 +3,13 @@ Contributors: shipinc
 Requires at least: 4.8
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.6.8
+Stable tag: 1.6.9
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
 HTML、画像、画像＋テキスト、ページャー、表示期間、表示頻度、計測に対応したWordPress用モーダル管理プラグインです。
+
+現行リリースでは運用方針により、管理画面の内容入力を画像専用に一時制限しています。既存のHTML・テキスト・ページャーの保存データは削除せず、公開表示も維持します。HTML等の入力を再開する場合は、プラグイン読込前に `SHIP_MODAL_IMAGE_ONLY_MODE` を `false` として定義するか、`ship_modal_image_only_mode` フィルターで `false` を返してください。
 
 == Description ==
 
@@ -22,6 +24,10 @@ HTML、画像、画像＋テキスト、ページャー、表示期間、表示�
 3. 「モーダル」から内容と表示設定を登録します。
 
 == Changelog ==
+
+= 1.6.9 =
+* 画像専用モードを導入。管理画面では画像とクリック先URLのみ入力可能にし、HTML・テキスト・ページャー等の既存データは保持。
+* `SHIP_MODAL_IMAGE_ONLY_MODE` 定数と `ship_modal_image_only_mode` フィルターで、将来のHTML入力再開を可能にした。
 
 = 1.6.8 =
 * 管理者に加えて編集者もモーダルの作成・編集・公開・プレビュー・計測操作を行えるよう権限を拡張。

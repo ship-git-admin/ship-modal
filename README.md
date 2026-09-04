@@ -23,6 +23,10 @@ WordPress向けのモーダル管理プラグインです。
 - ページャーの前後移動、ドット移動、左右矢印キー
 - GitHubのmainブランチを優先する自動アップデート（Plugin Update Checker）
 
+## 現行の入力モード
+
+現行リリースでは運用方針により、管理画面の内容入力を画像専用に一時制限しています。既存のHTML・テキスト・ページャーの保存データは削除せず、公開表示も維持します。HTML等の入力を再開する場合は、プラグイン読込前に `SHIP_MODAL_IMAGE_ONLY_MODE` を `false` として定義するか、`ship_modal_image_only_mode` フィルターで `false` を返してください。
+
 ショートコード: [ship_modal id="123"]
 
 ## 対応環境

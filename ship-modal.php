@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Ship Modal
  * Description: HTML・画像バナー・期間指定・表示頻度・計測に対応したモーダル管理プラグイン。
- * Version: 1.6.8
+ * Version: 1.6.9
  * Requires at least: 4.8
  * Requires PHP: 7.4
  * Author: Ship Inc.
@@ -14,11 +14,17 @@ if (! defined('ABSPATH')) {
     exit;
 }
 
-define('SHIP_MODAL_VERSION', '1.6.8');
+define('SHIP_MODAL_VERSION', '1.6.9');
 define('SHIP_MODAL_FILE', __FILE__);
 define('SHIP_MODAL_DIR', plugin_dir_path(__FILE__));
 define('SHIP_MODAL_URL', plugin_dir_url(__FILE__));
 define('SHIP_MODAL_REPOSITORY', 'https://github.com/ship-git-admin/ship-modal');
+
+// 現行リリースは画像専用UIで運用する。wp-config.phpでfalseを先に定義するか、
+// ship_modal_image_only_modeフィルターでfalseを返すと、HTML等の入力UIを再開できる。
+if (! defined('SHIP_MODAL_IMAGE_ONLY_MODE')) {
+    define('SHIP_MODAL_IMAGE_ONLY_MODE', true);
+}
 
 require_once SHIP_MODAL_DIR . 'includes/class-ship-modal.php';
 

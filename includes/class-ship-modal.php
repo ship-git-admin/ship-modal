@@ -431,6 +431,20 @@ final class Ship_Modal
         return is_super_admin() || ($user && current_user_can('edit_ship_modals'));
     }
 
+    /**
+     * 内容入力UIを画像専用にする運用フラグ。
+     *
+     * 既存のHTML・ページャーなどの保存データはこのフラグでは削除せず、
+     * falseへ戻した時に再編集できるよう保持する。サイト固有の再開は
+     * wp-config.phpでSHIP_MODAL_IMAGE_ONLY_MODEをfalseにするか、
+     * ship_modal_image_only_modeフィルターでfalseを返して行う。
+     */
+    private function is_image_only_mode()
+    {
+        $default = defined('SHIP_MODAL_IMAGE_ONLY_MODE') ? SHIP_MODAL_IMAGE_ONLY_MODE : true;
+        return (bool) apply_filters('ship_modal_image_only_mode', (bool) $default);
+    }
+
     public function hide_non_admin_menu()
     {
         if (! $this->can_manage_modal()) {
@@ -630,7 +644,11 @@ final class Ship_Modal
     public function render_content_box($post)
     {
         wp_nonce_field('ship_modal_save', 'ship_modal_nonce');
-        $type = $this->meta($post->ID, 'content_type', 'image');
+        $image_only_mode = $this->is_image_only_mode();
+        $allowed_types = array('html', 'image', 'hybrid', 'text', 'pager');
+        $stored_type = $this->meta($post->ID, 'content_type', 'image');
+        $stored_type = in_array($stored_type, $allowed_types, true) ? $stored_type : 'image';
+        $type = $stored_type;
         $design = $this->meta($post->ID, 'design', 'center');
         $html = $this->meta($post->ID, 'html');
         $custom_css = $this->sanitize_custom_css($this->meta($post->ID, 'custom_css', ''));
@@ -666,6 +684,11 @@ final class Ship_Modal
             $pages = isset($form_state['pages']) && is_array($form_state['pages']) ? $form_state['pages'] : $pages;
             $custom_css = isset($form_state['custom_css']) ? $this->sanitize_custom_css($form_state['custom_css']) : $custom_css;
         }
+        // 画像専用モード中は、保存済みの内容形式を変更できないようにする。
+        // 既存のHTML系データをフォーム送信で上書きしないため、画面状態も固定する。
+        if ($image_only_mode) {
+            $type = $stored_type;
+        }
         if (! is_array($pages) || ! $pages) {
             $pages = array(array());
         }
@@ -677,12 +700,26 @@ final class Ship_Modal
             $post->ID,
             'ship_modal_preview_' . absint($post->ID)
         );
+        $type_labels = array(
+            'html' => '旧：自由HTML',
+            'image' => '画像のみ',
+            'hybrid' => '画像＋テキスト',
+            'text' => 'テキスト',
+            'pager' => 'ページャー',
+        );
         ?>
+        <?php if ($image_only_mode) : ?>
+        <div class="notice notice-warning inline ship-modal-image-only-notice">
+            <p><strong>現在は「画像のみモード」です。</strong>新規モーダルと編集画面では画像・クリック先URLのみ入力できます。</p>
+            <p>既存のHTML・テキスト・ページャーの保存データは削除せず、そのまま公開表示を維持しています。将来再開する場合は、<code>SHIP_MODAL_IMAGE_ONLY_MODE</code> を <code>false</code> に戻してください。</p>
+        </div>
+        <?php else : ?>
         <p class="description">HTML、画像バナー、画像＋HTML、複数ページのページャーから選べます。ページャーは各ページに画像とHTMLを設定できます。</p>
+        <?php endif; ?>
         <div class="notice notice-info inline ship-modal-admin-guide">
             <p><strong>使い方ガイド</strong></p>
             <ol>
-                <li>「フレーム」で内容の形式を選び、画像・見出し・本文・ボタンを入力します。</li>
+                <li><?php echo $image_only_mode ? '画像とクリック先URLを入力します。' : '「フレーム」で内容の形式を選び、画像・見出し・本文・ボタンを入力します。'; ?></li>
                 <li>下の「表示設定」で表示対象、起動方法、表示期間、閉じる操作を設定します。</li>
                 <li>「更新」を押したあと、対象ページを実際に開いてPC・スマホの表示を確認してください。</li>
             </ol>
@@ -691,10 +728,14 @@ final class Ship_Modal
         <?php if ('publish' !== $post->post_status) : ?><div class="notice notice-warning inline ship-modal-status-warning"><p><strong>現在は公開状態ではありません。</strong>このモーダルは公開ページには表示されません。まず下書きとして保存し、確認後に右上の「公開」または「更新」で公開してください。</p></div><?php endif; ?>
         <?php if ($post->ID) : ?><div class="ship-modal-preview-bar"><input type="hidden" name="ship_modal_preview_post_id" value="<?php echo absint($post->ID); ?>"><?php if ('auto-draft' !== $post->post_status) : ?><a class="button" href="<?php echo esc_url($preview_url); ?>" target="_blank" rel="noopener">保存済み内容をプレビュー</a><?php endif; ?><button type="submit" name="ship_modal_preview_after_save" value="1" class="button button-primary">更新してプレビュー</button><span>編集中の内容を保存してから、プレビュー画面を開きます。</span></div><?php endif; ?>
         <table class="form-table ship-modal-form-table">
+            <?php if ($image_only_mode) : ?>
+            <tr class="ship-modal-content-type-locked"><th>内容形式</th><td><input type="hidden" name="ship_modal_content_type" id="ship-modal-content_type" value="<?php echo esc_attr($type); ?>"><strong><?php echo esc_html(isset($type_labels[$type]) ? $type_labels[$type] : $type); ?></strong><p class="description">内容形式の変更と、画像以外の入力は一時停止中です。</p></td></tr>
+            <?php else : ?>
             <tr><th><label for="ship-modal-content_type">フレーム</label></th><td><?php $this->select('content_type', $type, array('html' => '旧：自由HTML', 'image' => '画像のみ', 'hybrid' => '画像＋テキスト（ボタン任意）', 'text' => 'テキスト（ボタン任意）', 'pager' => 'ページャー（複数ページ）')); ?></td></tr>
             <tr class="ship-modal-legacy-html-row"><th><label for="ship-modal-html">HTML</label></th><td><?php wp_editor($html, 'ship_modal_html', array('textarea_name' => 'ship_modal_html', 'textarea_rows' => 10, 'media_buttons' => false, 'teeny' => true)); ?></td></tr>
             <tr class="ship-modal-copy-row"><th><label for="ship-modal-heading">見出し</label></th><td><input type="text" class="widefat" name="ship_modal_heading" id="ship-modal-heading" value="<?php echo esc_attr($heading); ?>" placeholder="見出し（任意）"><p class="description">必須ではありません。長い文言は画面幅に合わせて折り返します。</p></td></tr>
             <tr class="ship-modal-copy-row"><th><label for="ship-modal-body">本文</label></th><td><textarea class="large-text" rows="5" name="ship_modal_body" id="ship-modal-body" placeholder="本文（任意）"><?php echo esc_textarea($body); ?></textarea><p class="description">本文はレイアウト用HTML不可。長さによる保存制限はありません。</p></td></tr>
+            <?php endif; ?>
             <tr class="ship-modal-single-image-row">
                 <th>画像</th>
                 <td>
@@ -705,16 +746,18 @@ final class Ship_Modal
                 </td>
             </tr>
             <tr class="ship-modal-single-image-row"><th><label for="ship-modal-link_url">クリック先URL</label></th><td><input type="url" class="widefat" name="ship_modal_link_url" id="ship-modal-link_url" value="<?php echo esc_attr($link_url); ?>" placeholder="https://example.com/"><br><label><input type="checkbox" name="ship_modal_link_new_tab" value="1" <?php checked($link_new_tab, true); ?>> 別タブで開く</label><p class="description">空欄なら画像はリンクになりません。</p></td></tr>
+            <?php if (! $image_only_mode) : ?>
             <tr class="ship-modal-hybrid-image-row"><th><label for="ship-modal-image_position">画像の位置</label></th><td><?php $this->select('image_position', $image_position, array('top' => '上', 'left' => '左', 'right' => '右')); ?></td></tr>
             <tr class="ship-modal-buttons-row"><th>ボタン</th><td><p class="description">任意・最大3個。文言の改行は&lt;br&gt;で指定できます。長い文言は画面幅に合わせて折り返します。</p><?php $this->render_button_fields($buttons, 3, 'ship_modal_buttons'); ?></td></tr>
             <tr class="ship-modal-pages-row"><th>ページ</th><td><div id="ship-modal-pages"><?php foreach ($pages as $index => $page) { $this->render_page_row($index, is_array($page) ? $page : array()); } ?></div><p><button type="button" class="button" id="ship-modal-add-page">＋ ページを追加</button></p><p class="description">各ページに画像・見出し・本文・ボタンを個別に設定できます。画像だけのページも作成できます。</p></td></tr>
+            <?php endif; ?>
             <tr><th><label for="ship-modal-design">表示レイアウト</label></th><td><?php $this->select('design', $design, array('center' => '中央カード', 'bottom' => '画面下部バナー', 'side' => '右下ポップアップ', 'fullscreen' => 'フルスクリーン')); ?><p class="description">モーダル全体の表示位置・形状を選択します。内容の形式は上の「フレーム」で設定します。</p></td></tr>
             <tr><th><label for="ship-modal-border_radius">角丸（border-radius）</label></th><td><input type="number" min="0" max="48" step="1" class="small-text" name="ship_modal_border_radius" id="ship-modal-border_radius" value="<?php echo esc_attr($border_radius); ?>"> px <p class="description">0〜48px。0なら角丸なし。</p></td></tr>
             <tr><th><label for="ship-modal-padding">内側の余白（padding）</label></th><td><input type="number" min="0" max="64" step="1" class="small-text" name="ship_modal_padding" id="ship-modal-padding" value="<?php echo esc_attr($padding); ?>"> px <p class="description">0〜64px。画像のみフレームは画像をコンテナいっぱいに表示します。</p></td></tr>
             <tr><th><label for="ship-modal-max_width">最大幅（max-width）</label></th><td><input type="number" min="280" max="1200" step="1" class="small-text" name="ship_modal_max_width" id="ship-modal-max_width" value="<?php echo esc_attr($max_width); ?>"> px <p class="description">280〜1200px、1px刻みで設定できます。スマホでは画面幅に合わせて縮小します。</p></td></tr>
-            <tr><th><label for="ship-modal-custom-css">上級者向け</label></th><td><details class="ship-modal-advanced-settings"><summary>このモーダル専用のCustom CSS</summary><textarea class="large-text code" rows="8" name="ship_modal_custom_css" id="ship-modal-custom-css" spellcheck="false"><?php echo esc_textarea($custom_css); ?></textarea><p class="description">このモーダルだけに適用するCSSを入力できます。<code>.ship-modal--id-<?php echo absint($post->ID); ?></code> を先頭に付けて指定してください。<code>&lt;style&gt;</code>タグは不要です。保存後に公開ページで必ず確認してください。</p></details></td></tr>
+            <?php if (! $image_only_mode) : ?><tr><th><label for="ship-modal-custom-css">上級者向け</label></th><td><details class="ship-modal-advanced-settings"><summary>このモーダル専用のCustom CSS</summary><textarea class="large-text code" rows="8" name="ship_modal_custom_css" id="ship-modal-custom-css" spellcheck="false"><?php echo esc_textarea($custom_css); ?></textarea><p class="description">このモーダルだけに適用するCSSを入力できます。<code>.ship-modal--id-<?php echo absint($post->ID); ?></code> を先頭に付けて指定してください。<code>&lt;style&gt;</code>タグは不要です。保存後に公開ページで必ず確認してください。</p></details></td></tr><?php endif; ?>
         </table>
-        <script type="text/html" id="ship-modal-page-template"><?php $this->render_page_row('__INDEX__', array()); ?></script>
+        <?php if (! $image_only_mode) : ?><script type="text/html" id="ship-modal-page-template"><?php $this->render_page_row('__INDEX__', array()); ?></script><?php endif; ?>
         <?php
     }
 
@@ -922,12 +965,21 @@ final class Ship_Modal
             update_post_meta($post_id, '_ship_modal_' . $theme_meta_key, $theme_value ?: $theme_default);
         }
 
-        $errors = array();
-        $type = isset($_POST['ship_modal_content_type']) ? sanitize_key(wp_unslash($_POST['ship_modal_content_type'])) : $this->meta($post_id, 'content_type', 'image');
         $allowed_types = array('html', 'image', 'hybrid', 'text', 'pager');
-        if (! in_array($type, $allowed_types, true)) {
-            $type = 'html';
+        $image_only_mode = $this->is_image_only_mode();
+        $stored_type = $this->meta($post_id, 'content_type', 'image');
+        $stored_type = in_array($stored_type, $allowed_types, true) ? $stored_type : 'image';
+        $submitted_type = isset($_POST['ship_modal_content_type']) ? sanitize_key(wp_unslash($_POST['ship_modal_content_type'])) : '';
+        if ($image_only_mode) {
+            // 既存の非画像モーダルは内容形式を保持し、画像専用UIからの送信で変換しない。
+            $type = $stored_type;
+        } else {
+            $type = $submitted_type !== '' ? $submitted_type : $stored_type;
+            if (! in_array($type, $allowed_types, true)) {
+                $type = 'html';
+            }
         }
+        $errors = array();
         $heading = isset($_POST['ship_modal_heading']) ? sanitize_text_field(wp_unslash($_POST['ship_modal_heading'])) : $this->meta($post_id, 'heading', '');
         $body_raw = isset($_POST['ship_modal_body']) ? wp_unslash($_POST['ship_modal_body']) : $this->meta($post_id, 'body', '');
         $body = wp_kses($body_raw, array('strong' => array(), 'br' => array(), 'a' => array('href' => true, 'target' => true, 'rel' => true)));
@@ -1001,37 +1053,54 @@ final class Ship_Modal
         delete_post_meta($post_id, '_ship_modal_errors_' . get_current_user_id());
 
         foreach (array('link_url', 'trigger_text', 'start_at', 'end_at') as $field) {
-            $value = isset($_POST['ship_modal_' . $field]) ? wp_unslash($_POST['ship_modal_' . $field]) : '';
+            $value = isset($_POST['ship_modal_' . $field])
+                ? wp_unslash($_POST['ship_modal_' . $field])
+                : $this->meta($post_id, $field, '');
             update_post_meta($post_id, '_ship_modal_' . $field, sanitize_text_field($value));
         }
-        update_post_meta($post_id, '_ship_modal_html', wp_kses_post($html));
-        update_post_meta($post_id, '_ship_modal_custom_css', $custom_css);
-        update_post_meta($post_id, '_ship_modal_heading', $heading);
-        update_post_meta($post_id, '_ship_modal_body', $body);
-        update_post_meta($post_id, '_ship_modal_buttons', $buttons);
+        // 画像専用モード中は、画面から隠している内容データを一切上書きしない。
+        // 将来フラグをfalseへ戻した時に、既存のHTML等をそのまま再編集できるようにする。
+        if (! $image_only_mode) {
+            update_post_meta($post_id, '_ship_modal_html', wp_kses_post($html));
+            update_post_meta($post_id, '_ship_modal_custom_css', $custom_css);
+            update_post_meta($post_id, '_ship_modal_heading', $heading);
+            update_post_meta($post_id, '_ship_modal_body', $body);
+            update_post_meta($post_id, '_ship_modal_buttons', $buttons);
+        }
         update_post_meta($post_id, '_ship_modal_image_id', $image_id);
-        update_post_meta($post_id, '_ship_modal_link_new_tab', isset($_POST['ship_modal_link_new_tab']) ? '1' : '0');
-        $trigger_bg_color = isset($_POST['ship_modal_trigger_bg_color']) ? sanitize_hex_color(wp_unslash($_POST['ship_modal_trigger_bg_color'])) : '';
-        $trigger_text_color = isset($_POST['ship_modal_trigger_text_color']) ? sanitize_hex_color(wp_unslash($_POST['ship_modal_trigger_text_color'])) : '';
+        $link_new_tab = isset($_POST['ship_modal_link_new_tab'])
+            ? '1'
+            : $this->meta($post_id, 'link_new_tab', '0');
+        update_post_meta($post_id, '_ship_modal_link_new_tab', '1' === $link_new_tab ? '1' : '0');
+        $trigger_bg_color = isset($_POST['ship_modal_trigger_bg_color'])
+            ? sanitize_hex_color(wp_unslash($_POST['ship_modal_trigger_bg_color']))
+            : sanitize_hex_color($this->meta($post_id, 'trigger_bg_color', '#0f766e'));
+        $trigger_text_color = isset($_POST['ship_modal_trigger_text_color'])
+            ? sanitize_hex_color(wp_unslash($_POST['ship_modal_trigger_text_color']))
+            : sanitize_hex_color($this->meta($post_id, 'trigger_text_color', '#ffffff'));
         update_post_meta($post_id, '_ship_modal_trigger_bg_color', $trigger_bg_color ?: '#0f766e');
         update_post_meta($post_id, '_ship_modal_trigger_text_color', $trigger_text_color ?: '#ffffff');
         update_post_meta($post_id, '_ship_modal_delay', isset($_POST['ship_modal_delay']) ? min(120, max(0, absint($_POST['ship_modal_delay']))) : 2);
         update_post_meta($post_id, '_ship_modal_scroll_threshold', isset($_POST['ship_modal_scroll_threshold']) ? min(95, max(10, absint($_POST['ship_modal_scroll_threshold']))) : 50);
         update_post_meta($post_id, '_ship_modal_show_close', $show_close);
         update_post_meta($post_id, '_ship_modal_close_overlay', $close_overlay);
-        update_post_meta($post_id, '_ship_modal_pages', $pages);
+        if (! $image_only_mode) {
+            update_post_meta($post_id, '_ship_modal_pages', $pages);
+        }
         update_post_meta($post_id, '_ship_modal_border_radius', $border_radius);
         update_post_meta($post_id, '_ship_modal_padding', $padding);
         update_post_meta($post_id, '_ship_modal_max_width', $max_width);
-        $target_ids = array();
-        $targetable_types = $this->targetable_post_types();
-        foreach (array_unique(array_map('absint', wp_unslash($raw_target_ids))) as $target_id) {
-            $target_post = $target_id ? get_post($target_id) : null;
-            if ($target_post && 'publish' === $target_post->post_status && isset($targetable_types[$target_post->post_type])) {
-                $target_ids[] = $target_id;
+        if (isset($_POST['ship_modal_target_ids']) || 'selected' === $scope) {
+            $target_ids = array();
+            $targetable_types = $this->targetable_post_types();
+            foreach (array_unique(array_map('absint', wp_unslash($raw_target_ids))) as $target_id) {
+                $target_post = $target_id ? get_post($target_id) : null;
+                if ($target_post && 'publish' === $target_post->post_status && isset($targetable_types[$target_post->post_type])) {
+                    $target_ids[] = $target_id;
+                }
             }
+            update_post_meta($post_id, '_ship_modal_target_ids', $target_ids);
         }
-        update_post_meta($post_id, '_ship_modal_target_ids', $target_ids);
         $allowed = array(
             'content_type' => $allowed_types,
             'image_position' => array('top', 'left', 'right'),
@@ -1042,8 +1111,21 @@ final class Ship_Modal
             'frequency' => array('always', 'session', 'day', 'once'),
         );
         foreach ($allowed as $field => $values) {
-            $value = isset($_POST['ship_modal_' . $field]) ? sanitize_key(wp_unslash($_POST['ship_modal_' . $field])) : '';
-            update_post_meta($post_id, '_ship_modal_' . $field, in_array($value, $values, true) ? $value : reset($values));
+            if ($image_only_mode && 'image_position' === $field) {
+                continue;
+            }
+            if ($image_only_mode && 'content_type' === $field && 'image' !== $stored_type) {
+                continue;
+            }
+            $default_value = reset($values);
+            $current_value = $this->meta($post_id, $field, $default_value);
+            $value = isset($_POST['ship_modal_' . $field])
+                ? sanitize_key(wp_unslash($_POST['ship_modal_' . $field]))
+                : $current_value;
+            if (! in_array($value, $values, true)) {
+                $value = in_array($current_value, $values, true) ? $current_value : $default_value;
+            }
+            update_post_meta($post_id, '_ship_modal_' . $field, $value);
         }
         $this->ensure_counter_meta($post_id);
     }
