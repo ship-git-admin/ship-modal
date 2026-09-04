@@ -1828,6 +1828,9 @@ final class Ship_Modal
         if (! $preview) {
             $this->rendered_modal_ids[$post_id] = true;
         }
+        // 画像専用運用では自動生成の見出しを出さず、dialogのaria-labelだけで名前を付ける。
+        // HTML等を再開するフラグへ戻した場合は、従来どおりスクリーンリーダー用h2を出力する。
+        $show_modal_title_heading = ! $this->is_image_only_mode();
         ob_start();
         if ('manual' === $trigger) {
             $button_text = $this->meta($post_id, 'trigger_text', 'キャンペーン詳細を見る');
@@ -1843,10 +1846,10 @@ final class Ship_Modal
         }
         ?>
         <?php if ($custom_css !== '') : ?><style id="ship-modal-custom-css-<?php echo absint($post_id); ?>"><?php echo $custom_css; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?></style><?php endif; ?>
-        <div id="<?php echo esc_attr($modal_id); ?>" class="ship-modal ship-modal--<?php echo esc_attr($design); ?> ship-modal--id-<?php echo absint($post_id); ?>" style="<?php echo esc_attr($modal_style); ?>" data-post-id="<?php echo absint($post_id); ?>" data-event-token="<?php echo esc_attr($this->event_token($post_id)); ?>" data-modal-title="<?php echo esc_attr($title); ?>" data-content-type="<?php echo esc_attr($type); ?>" data-design="<?php echo esc_attr($design); ?>" data-trigger="<?php echo esc_attr($trigger); ?>" data-frequency="<?php echo esc_attr($frequency); ?>" data-delay="<?php echo esc_attr($delay); ?>" data-scroll-threshold="<?php echo esc_attr($scroll_threshold); ?>" data-schedule-start="<?php echo esc_attr($schedule_start ? $schedule_start * 1000 : 0); ?>" data-schedule-end="<?php echo esc_attr($schedule_end ? $schedule_end * 1000 : 0); ?>" data-auto-open="<?php echo 'auto' === $trigger ? '1' : '0'; ?>" data-close-overlay="<?php echo $close_overlay ? '1' : '0'; ?>" data-preview="<?php echo $preview ? '1' : '0'; ?>" role="dialog" aria-modal="true" aria-labelledby="<?php echo esc_attr($modal_id); ?>-title" hidden>
+        <div id="<?php echo esc_attr($modal_id); ?>" class="ship-modal ship-modal--<?php echo esc_attr($design); ?> ship-modal--id-<?php echo absint($post_id); ?>" style="<?php echo esc_attr($modal_style); ?>" data-post-id="<?php echo absint($post_id); ?>" data-event-token="<?php echo esc_attr($this->event_token($post_id)); ?>" data-modal-title="<?php echo esc_attr($title); ?>" data-content-type="<?php echo esc_attr($type); ?>" data-design="<?php echo esc_attr($design); ?>" data-trigger="<?php echo esc_attr($trigger); ?>" data-frequency="<?php echo esc_attr($frequency); ?>" data-delay="<?php echo esc_attr($delay); ?>" data-scroll-threshold="<?php echo esc_attr($scroll_threshold); ?>" data-schedule-start="<?php echo esc_attr($schedule_start ? $schedule_start * 1000 : 0); ?>" data-schedule-end="<?php echo esc_attr($schedule_end ? $schedule_end * 1000 : 0); ?>" data-auto-open="<?php echo 'auto' === $trigger ? '1' : '0'; ?>" data-close-overlay="<?php echo $close_overlay ? '1' : '0'; ?>" data-preview="<?php echo $preview ? '1' : '0'; ?>" role="dialog" aria-modal="true" <?php if ($show_modal_title_heading && $title !== '') : ?>aria-labelledby="<?php echo esc_attr($modal_id); ?>-title"<?php else : ?>aria-label="<?php echo esc_attr($title !== '' ? $title : 'モーダル'); ?>"<?php endif; ?> hidden>
             <div class="ship-modal__backdrop" data-ship-modal-close></div>
             <div class="ship-modal__dialog" role="document" tabindex="-1">
-                <h2 id="<?php echo esc_attr($modal_id); ?>-title" class="screen-reader-text"><?php echo esc_html($title); ?></h2>
+                <?php if ($show_modal_title_heading && $title !== '') : ?><h2 id="<?php echo esc_attr($modal_id); ?>-title" class="screen-reader-text"><?php echo esc_html($title); ?></h2><?php endif; ?>
                 <?php if ($show_close) : ?><button type="button" class="ship-modal__close" aria-label="閉じる" data-ship-modal-close><span aria-hidden="true">×</span></button><?php endif; ?>
                 <div class="ship-modal__content<?php echo esc_attr($content_class); ?>"><?php echo $content; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?></div>
             </div>
