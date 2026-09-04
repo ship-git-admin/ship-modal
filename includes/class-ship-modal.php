@@ -955,10 +955,10 @@ final class Ship_Modal
     {
         $limits = apply_filters('ship_modal_button_label_limits', array(
             'lines' => 2,
-            'chars_per_line' => 10,
+            'chars_per_line' => 16,
         ));
         $lines = isset($limits['lines']) ? absint($limits['lines']) : 2;
-        $chars_per_line = isset($limits['chars_per_line']) ? absint($limits['chars_per_line']) : 10;
+        $chars_per_line = isset($limits['chars_per_line']) ? absint($limits['chars_per_line']) : 16;
         return array(
             'lines' => max(1, min(3, $lines)),
             'chars_per_line' => max(4, min(30, $chars_per_line)),
@@ -1055,6 +1055,8 @@ final class Ship_Modal
             $post->ID,
             'ship_modal_preview_' . absint($post->ID)
         );
+        $shortcode_example = '[ship_modal id="' . absint($post->ID) . '"]';
+        $php_shortcode_example = "<?php echo do_shortcode('" . $shortcode_example . "'); ?>";
         $image_only_guide = in_array($type, array('image', 'hybrid'), true)
             ? '基本画像を1枚設定します。スマホ用画像が必要な場合だけ追加できます。'
             : '既存の内容形式は変更せず、そのまま公開表示します。';
@@ -1236,7 +1238,12 @@ final class Ship_Modal
             </td></tr>
             <tr><th>閉じる操作</th><td><input type="hidden" name="ship_modal_show_close" value="0"><label><input type="checkbox" name="ship_modal_show_close" value="1" <?php checked($show_close, '1'); ?>> 閉じるボタンを表示</label><br><input type="hidden" name="ship_modal_close_overlay" value="0"><label><input type="checkbox" name="ship_modal_close_overlay" value="1" <?php checked($close_overlay, '1'); ?>> 背景クリックで閉じる</label><br><input type="hidden" name="ship_modal_show_backdrop" value="0"><label><input type="checkbox" name="ship_modal_show_backdrop" value="1" <?php checked($show_backdrop, '1'); ?>> 背景を暗くする</label><p class="description">「背景を暗くする」を外すと、背後のページを暗転させずに表示します。閉じる手段がなくなる設定は安全のため保存せず、両方を外した場合は閉じるボタンを自動で有効にします。</p></td></tr>
         </table>
-        <p class="description">ショートコード例：<code>[ship_modal id="<?php echo esc_attr($post->ID); ?>"]</code></p>
+        <div class="notice notice-info inline ship-modal-shortcode-help">
+            <p><strong>ショートコードの使い方・設置位置</strong></p>
+            <p>本文・固定ページ・ブロックには <code><?php echo esc_html($shortcode_example); ?></code> を記述します。テーマPHPへ直接設置する場合は、表示したい位置に次のコードを記述してください。</p>
+            <p><code><?php echo esc_html($php_shortcode_example); ?></code></p>
+            <p class="description">表示対象で「ショートコードのみ」を選ぶと、ショートコードを記述した位置に出力します。手動表示ボタンはその位置に表示され、自動表示の場合は記述位置に関係なく画面上へモーダルを表示します。</p>
+        </div>
         <?php
     }
 

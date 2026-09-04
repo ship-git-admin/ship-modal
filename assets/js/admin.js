@@ -72,7 +72,7 @@
   function updateButtonLabelMeta(field) {
     var $field = $(field);
     var maxLines = parseInt($field.attr('data-max-lines'), 10) || 2;
-    var maxChars = parseInt($field.attr('data-max-chars-per-line'), 10) || 10;
+    var maxChars = parseInt($field.attr('data-max-chars-per-line'), 10) || 16;
     var lines = buttonLabelLines($field.val());
     var lengths = lines.map(function (line) { return toChars(line).length; });
     var maxLineLength = lengths.length ? Math.max.apply(Math, lengths) : 0;
@@ -90,7 +90,7 @@
   function normalizeButtonLabelField(field) {
     var $field = $(field);
     var maxLines = parseInt($field.attr('data-max-lines'), 10) || 2;
-    var maxChars = parseInt($field.attr('data-max-chars-per-line'), 10) || 10;
+    var maxChars = parseInt($field.attr('data-max-chars-per-line'), 10) || 16;
     var lines = buttonLabelLines($field.val()).slice(0, maxLines).map(function (line) {
       return toChars(line).slice(0, maxChars).join('');
     });
