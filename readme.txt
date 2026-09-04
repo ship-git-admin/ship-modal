@@ -3,7 +3,7 @@ Contributors: shipinc
 Requires at least: 4.8
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.8.5
+Stable tag: 1.8.6
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -36,6 +36,12 @@ GA4の同意状態は `window.ShipModalConsent.setAnalyticsConsent(true)` / `fal
 3. 「モーダル」から内容と表示設定を登録します。
 
 == Changelog ==
+
+= 1.8.6 =
+* ボタン文言を1行16文字・最大2行（合計32文字）に統一し、ショートコードの使い方・設置位置を管理画面に追加。
+* 不正な日時や開始日時が終了日時より後の期間は保存を拒否し、入力内容を保持して修正できるよう改善。
+* 「離脱意図で表示（PCのみ）」と「ボタンから表示」を新規設定で一時停止し、既存設定は保持。
+* 一時停止中の機能一覧をREADMEに整理し、管理画面のショートコード案内で発生する未定義変数警告を修正。
 
 = 1.8.5 =
 * 自動更新をRelease Asset必須・latest_release限定に変更し、タグZIPやmainブランチへのフォールバックを停止。
