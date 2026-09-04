@@ -3,7 +3,7 @@ Contributors: shipinc
 Requires at least: 4.8
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.6.9
+Stable tag: 1.7.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -24,6 +24,11 @@ HTML、画像、画像＋テキスト、ページャー、表示期間、表示�
 3. 「モーダル」から内容と表示設定を登録します。
 
 == Changelog ==
+
+= 1.7.0 =
+* 基本画像のalt入力欄を追加。
+* スマホ用画像を任意で設定できる2枠構成を追加。未設定時は基本画像を使用。
+* 画像専用モードの管理画面案内を簡略化。
 
 = 1.6.9 =
 * 画像専用モードを導入。管理画面では画像とクリック先URLのみ入力可能にし、HTML・テキスト・ページャー等の既存データは保持。

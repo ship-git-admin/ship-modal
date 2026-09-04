@@ -31,6 +31,8 @@
   margin-right:auto;
   margin-left:auto;
 }
+.ship-modal__content picture{display:block;text-align:center}
+.ship-modal__content picture .ship-modal__image{margin-right:auto;margin-left:auto}
 .ship-modal__hybrid-media,
 .ship-modal__page-media{
   text-align:center;
