@@ -1055,8 +1055,6 @@ final class Ship_Modal
             $post->ID,
             'ship_modal_preview_' . absint($post->ID)
         );
-        $shortcode_example = '[ship_modal id="' . absint($post->ID) . '"]';
-        $php_shortcode_example = "<?php echo do_shortcode('" . $shortcode_example . "'); ?>";
         $image_only_guide = in_array($type, array('image', 'hybrid'), true)
             ? '基本画像を1枚設定します。スマホ用画像が必要な場合だけ追加できます。'
             : '既存の内容形式は変更せず、そのまま公開表示します。';
@@ -1140,6 +1138,9 @@ final class Ship_Modal
     public function render_display_box($post)
     {
         $scope = $this->meta($post->ID, 'scope', 'front');
+        // このボックス内の案内で使用するため、ここで現在のモーダルIDから生成する。
+        $shortcode_example = '[ship_modal id="' . absint($post->ID) . '"]';
+        $php_shortcode_example = "<?php echo do_shortcode('" . $shortcode_example . "'); ?>";
         $singular_scope_enabled = $this->is_singular_scope_enabled();
         $scope_options = array(
             'front' => 'トップページのみ',
