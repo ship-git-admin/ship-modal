@@ -1748,26 +1748,48 @@ final class Ship_Modal
         }
         $key = $this->event_claim_key($post_id, $event, $event_id);
         $ttl = max(300, min(2 * (defined('HOUR_IN_SECONDS') ? HOUR_IN_SECONDS : 3600), $this->event_token_ttl()));
-        $cache_claimed = false;
         if (function_exists('wp_using_ext_object_cache') && wp_using_ext_object_cache()) {
-            if (! wp_cache_add($key, 1, 'ship_modal_event_dedup', $ttl)) {
+            if (wp_cache_add($key, 1, 'ship_modal_event_dedup', $ttl)) {
+                return 'cache|' . $key;
+            } elseif (false !== wp_cache_get($key, 'ship_modal_event_dedup')) {
+                // add失敗でも、既存値が読める場合だけ重複と判断する。
                 return false;
             }
-            $cache_claimed = true;
         }
         if (false !== get_transient($key)) {
-            if ($cache_claimed) {
-                wp_cache_delete($key, 'ship_modal_event_dedup');
-            }
             return false;
         }
-        if (false === set_transient($key, 1, $ttl)) {
-            if ($cache_claimed) {
-                wp_cache_delete($key, 'ship_modal_event_dedup');
-            }
-            return null;
+        if (set_transient($key, 1, $ttl)) {
+            return 'transient|' . $key;
         }
-        return $key;
+
+        // APCu等の外部キャッシュがCLI／低機能環境で使えない場合も、
+        // DBスキーマを追加せず、モーダル単位の非autoload optionへ短期保存する。
+        $option_name = 'ship_modal_event_dedup_' . absint($post_id);
+        $event_hash = substr(hash('sha256', $key), 0, 40);
+        $now = time();
+        $stored = get_option($option_name, array());
+        $stored = is_array($stored) ? $stored : array();
+        foreach ($stored as $stored_hash => $stored_at) {
+            if (! is_numeric($stored_at) || (int) $stored_at < $now - $ttl) {
+                unset($stored[$stored_hash]);
+            }
+        }
+        if (isset($stored[$event_hash])) {
+            return false;
+        }
+        if (count($stored) >= 200) {
+            asort($stored, SORT_NUMERIC);
+            $stored = array_slice($stored, -199, 199, true);
+        }
+        $stored[$event_hash] = $now;
+        if (false === update_option($option_name, $stored, false)) {
+            $verified = get_option($option_name, array());
+            if (! is_array($verified) || ! isset($verified[$event_hash])) {
+                return null;
+            }
+        }
+        return 'option|' . $option_name . '|' . $event_hash;
     }
 
     private function release_event_claim($key)
@@ -1775,9 +1797,23 @@ final class Ship_Modal
         if (! is_string($key) || $key === '') {
             return;
         }
-        delete_transient($key);
-        if (function_exists('wp_using_ext_object_cache') && wp_using_ext_object_cache()) {
-            wp_cache_delete($key, 'ship_modal_event_dedup');
+        if (strpos($key, 'cache|') === 0) {
+            wp_cache_delete(substr($key, 6), 'ship_modal_event_dedup');
+            return;
+        }
+        if (strpos($key, 'transient|') === 0) {
+            delete_transient(substr($key, 10));
+            return;
+        }
+        if (strpos($key, 'option|') === 0) {
+            $parts = explode('|', $key, 3);
+            if (count($parts) === 3) {
+                $stored = get_option($parts[1], array());
+                if (is_array($stored) && isset($stored[$parts[2]])) {
+                    unset($stored[$parts[2]]);
+                    update_option($parts[1], $stored, false);
+                }
+            }
         }
     }
 
