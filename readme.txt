@@ -3,7 +3,7 @@ Contributors: shipinc
 Requires at least: 4.8
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.8.7
+Stable tag: 1.8.8
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -36,6 +36,9 @@ GA4の同意状態は `window.ShipModalConsent.setAnalyticsConsent(true)` / `fal
 3. 「モーダル」から内容と表示設定を登録します。
 
 == Changelog ==
+
+= 1.8.8 =
+* Plugin Update Checkerを公式5.7へ更新し、GitHub Release Asset経由の自動更新互換性を維持。
 
 = 1.8.7 =
 * 一時停止中の「離脱意図で表示（PCのみ）」「ボタンから表示」の説明カードを管理画面から非表示化。
