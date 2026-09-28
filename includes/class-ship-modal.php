@@ -43,6 +43,8 @@ final class Ship_Modal
         add_shortcode('ship_modal', array($this, 'shortcode'));
         add_action('wp_ajax_ship_modal_event', array($this, 'record_event'));
         add_action('wp_ajax_nopriv_ship_modal_event', array($this, 'record_event'));
+        add_action('wp_ajax_ship_modal_tracking_status', array($this, 'tracking_status'));
+        add_action('wp_ajax_nopriv_ship_modal_tracking_status', array($this, 'tracking_status'));
         add_action('wp_ajax_ship_modal_search_targets', array($this, 'search_targets'));
         add_action('admin_post_ship_modal_preview', array($this, 'preview'));
         add_action('admin_post_ship_modal_save_settings', array($this, 'save_settings'));
@@ -2097,6 +2099,20 @@ final class Ship_Modal
         return hash_hmac('sha256', $ip . '|' . $user_agent, wp_salt('nonce'));
     }
 
+    /**
+     * 指定した接続元IPからのShip Modal計測を除外する。
+     */
+    private function is_tracking_excluded_ip()
+    {
+        $ip = isset($_SERVER['REMOTE_ADDR']) ? trim((string) $_SERVER['REMOTE_ADDR']) : '';
+        return '150.249.250.59' === $ip;
+    }
+
+    public function tracking_status()
+    {
+        wp_send_json_success(array('enabled' => ! $this->is_tracking_excluded_ip()));
+    }
+
     private function event_is_rate_limited($post_id, $event)
     {
         $fingerprint = $this->event_client_fingerprint();
@@ -2446,6 +2462,9 @@ final class Ship_Modal
         $valid_legacy_nonce = $legacy_nonce !== '' && wp_verify_nonce($legacy_nonce, 'ship_modal_event');
         if (! $valid_token && ! $valid_legacy_nonce) {
             wp_send_json_error(array('message' => 'invalid token'), 403);
+        }
+        if ($this->is_tracking_excluded_ip()) {
+            wp_send_json_success(array('recorded' => false, 'reason' => 'excluded_ip'));
         }
         if (! $this->is_in_schedule($post_id)) {
             wp_send_json_success(array('recorded' => false, 'reason' => 'outside_schedule'));

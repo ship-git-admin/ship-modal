@@ -1,5 +1,9 @@
 # Ship Modal
 
+## 1.8.9での更新
+
+- 接続元IP `150.249.250.59` からのShip Modal内部計測とGA4／GTMイベント送信を除外。
+
 ## 1.8.8での更新
 
 - Plugin Update Checkerを公式5.7へ更新し、GitHub Release Asset経由の自動更新互換性を維持。

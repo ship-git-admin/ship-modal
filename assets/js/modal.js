@@ -10,6 +10,8 @@
   var gtagOwnedByShipModal = false;
   var gtagConfiguredIds = {};
   var shipModalQueuedGtagEntries = [];
+  var trackingPermission = 'pending';
+  var pendingTrackingEvents = [];
   var backgroundInertState = [];
   function isAnalyticsConsentGranted(value) {
     // wp_localize_script()はbooleanを文字列へ変換するため、false/0/空文字も未同意として扱う。
@@ -215,6 +217,60 @@
     } catch (e) { /* analytics must never block the UI */ }
   }
 
+  function dispatchTracking(entry) {
+    trackServer(entry.modal, entry.event);
+    sendAnalyticsPayload(entry.analytics);
+  }
+
+  function setTrackingPermission(enabled) {
+    if (trackingPermission !== 'pending') return;
+    trackingPermission = enabled ? 'allowed' : 'denied';
+    if (!enabled) {
+      pendingTrackingEvents = [];
+      return;
+    }
+    pendingTrackingEvents.forEach(dispatchTracking);
+    pendingTrackingEvents = [];
+  }
+
+  function checkTrackingPermission() {
+    if (!config.ajaxUrl) {
+      setTrackingPermission(false);
+      return;
+    }
+    var body = 'action=ship_modal_tracking_status';
+    if (window.fetch) {
+      window.fetch(config.ajaxUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+        body: body,
+        credentials: 'same-origin'
+      }).then(function (response) {
+        if (!response.ok) throw new Error('Tracking permission request failed');
+        return response.json();
+      }).then(function (result) {
+        setTrackingPermission(!!(result && result.success && result.data && result.data.enabled));
+      }).catch(function () {
+        setTrackingPermission(false);
+      });
+      return;
+    }
+    try {
+      var request = new XMLHttpRequest();
+      request.open('POST', config.ajaxUrl, true);
+      request.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8');
+      request.onload = function () {
+        var result = null;
+        try { result = JSON.parse(request.responseText); } catch (e) { /* fail closed */ }
+        setTrackingPermission(!!(request.status >= 200 && request.status < 300 && result && result.success && result.data && result.data.enabled));
+      };
+      request.onerror = function () { setTrackingPermission(false); };
+      request.send(body);
+    } catch (e) {
+      setTrackingPermission(false);
+    }
+  }
+
   function currentPage(modal) {
     var pages = modal ? modal.querySelector('.ship-modal__pages') : null;
     var current = pages ? pages.querySelector('.ship-modal__page.is-active') : null;
@@ -340,11 +396,10 @@
     }
   }
 
-  function sendAnalytics(modal, eventName, details) {
+  function sendAnalyticsPayload(payload) {
     // 同意がない間はGoogleタグ・GTM向けdataLayerの双方へ送信しない。
-    // 内部計測(trackServer)は別系統のため、track()側では継続する。
+    // 内部計測はdispatchTracking()で先に処理するため、この同意判定では止めない。
     if (!analyticsConsentGranted()) return;
-    var payload = analyticsPayload(modal, eventName, details);
     if (!payload) return;
     var transport = config.ga4Transport || 'auto';
     var gtagResult = transport !== 'datalayer' ? pushGtag(payload) : false;
@@ -354,9 +409,13 @@
 
   function track(modal, event, details) {
     if (modal && modal.dataset.preview === '1') return;
-    try { trackServer(modal, event); } catch (e) { /* analytics must never block the UI */ }
     var eventName = event === 'impression' ? 'ship_modal_impression' : event === 'click' ? 'ship_modal_click' : event === 'close' ? 'ship_modal_close' : 'ship_modal_page_view';
-    sendAnalytics(modal, eventName, details);
+    var entry = { modal: modal, event: event, analytics: analyticsPayload(modal, eventName, details) };
+    if (trackingPermission === 'allowed') {
+      try { dispatchTracking(entry); } catch (e) { /* analytics must never block the UI */ }
+    } else if (trackingPermission === 'pending' && pendingTrackingEvents.length < 100) {
+      pendingTrackingEvents.push(entry);
+    }
   }
 
   function focusable(modal) {
@@ -599,6 +658,7 @@
   }
 
   function initialize() {
+    checkTrackingPermission();
     document.querySelectorAll('.ship-modal').forEach(function (modal) {
       initializeModal(modal);
     });
