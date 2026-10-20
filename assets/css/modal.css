@@ -269,5 +269,5 @@
 .ship-modal.ship-modal--sp .ship-modal__content--pager .ship-modal__page-html{padding:var(--ship-modal-padding,20px)}
 .ship-modal.ship-modal--sp .ship-modal__hybrid--top .ship-modal__hybrid-media{margin:calc(var(--ship-modal-padding,20px) * -1) calc(var(--ship-modal-padding,20px) * -1) var(--ship-modal-padding,20px)}
 
-.ship-modal.ship-modal--sp .ship-modal__close{top:-10px;right:-10px;width:28px;height:28px;font-size:20px}
-.ship-modal.ship-modal--sp.ship-modal--side .ship-modal__close{top:max(-8px,calc(4px - var(--ship-modal-side-margin-sp-y,12px)));right:max(-8px,calc(4px - var(--ship-modal-side-margin-sp-x,12px)))}
+.ship-modal.ship-modal--sp .ship-modal__close{top:-12px;right:-12px;width:28px;height:28px;font-size:20px}
+.ship-modal.ship-modal--sp.ship-modal--side .ship-modal__close{top:max(-13px,calc(4px - var(--ship-modal-side-margin-sp-y,12px)));right:max(-13px,calc(4px - var(--ship-modal-side-margin-sp-x,12px)))}

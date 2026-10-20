@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Ship Modal
  * Description: HTML・画像バナー・期間指定・表示頻度・計測に対応したモーダル管理プラグイン。
- * Version: 1.9.6
+ * Version: 1.9.7
  * Requires at least: 4.8
  * Requires PHP: 7.4
  * Author: Ship Inc.

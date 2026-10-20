@@ -3,7 +3,7 @@ Contributors: shipinc
 Requires at least: 4.8
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.9.6
+Stable tag: 1.9.7
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -38,6 +38,9 @@ GA4の同意状態は `window.ShipModalConsent.setAnalyticsConsent(true)` / `fal
 3. 「モーダル」から内容と表示設定を登録します。
 
 == Changelog ==
+
+= 1.9.7 =
+* SPの閉じるボタン位置を微調整し、右下配置では画面端の余白を考慮して外側へ配置しつつ、画面外へのはみ出しを防止。
 
 = 1.9.6 =
 * 右下配置のPC・TB・SP別余白がSP切替幅に合わせて切り替わるよう改善し、管理画面の適用範囲表示も連動。
