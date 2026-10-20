@@ -200,6 +200,22 @@
     }
   }
 
+  function refreshTaxonomyAddButton(picker) {
+    var $picker = $(picker);
+    var taxonomy = String($picker.find('.ship-modal-target-rule-taxonomy').val() || '');
+    var $button = $picker.find('.ship-modal-target-rule-add-taxonomy-all');
+    if (!taxonomy) {
+      $button.removeData('targetRuleKey').prop('disabled', true).text('タクソノミー全体を追加');
+      return;
+    }
+    var key = targetRuleKey('taxonomy_all', { taxonomy: taxonomy });
+    if (targetRuleIsSelected(key, $picker)) {
+      $button.data('targetRuleKey', key).prop('disabled', true).text('追加済み');
+    } else {
+      $button.removeData('targetRuleKey').prop('disabled', false).text('タクソノミー全体を追加');
+    }
+  }
+
   function refreshStatsExportLink() {
     $('.ship-modal-stats-export-link').each(function () {
       var $link = $(this);
@@ -238,6 +254,7 @@
   function targetRuleKey(type, values) {
     if (type === 'post_type') return 'post_type:' + values.post_type;
     if (type === 'slug_contains') return 'slug_contains:' + String(values.keyword || '').trim().toLowerCase();
+    if (type === 'taxonomy_all') return 'taxonomy_all:' + values.taxonomy;
     return 'taxonomy:' + values.taxonomy + ':' + values.term_id;
   }
 
@@ -263,6 +280,8 @@
       addRuleInput('post_type', values.post_type);
     } else if (type === 'slug_contains') {
       addRuleInput('keyword', String(values.keyword || '').trim());
+    } else if (type === 'taxonomy_all') {
+      addRuleInput('taxonomy', values.taxonomy);
     } else {
       addRuleInput('taxonomy', values.taxonomy);
       addRuleInput('term_id', values.term_id);
@@ -415,6 +434,7 @@
       refreshTargetAddMode(this);
       refreshPostTypeAddButton(this);
       refreshSlugAddButton(this);
+      refreshTaxonomyAddButton(this);
     });
     refreshStatsExportLink();
     $(document)
@@ -468,6 +488,15 @@
       addTargetRule('slug_contains', { keyword: keyword }, 'Slugに「' + keyword + '」を含む', $picker);
       refreshSlugAddButton($picker);
     });
+    $(document).on('click', '.ship-modal-target-rule-add-taxonomy-all', function () {
+      var $picker = $(this).closest('.ship-modal-target-picker');
+      var $select = $picker.find('.ship-modal-target-rule-taxonomy');
+      var taxonomy = String($select.val() || '');
+      if (!taxonomy) return;
+      var label = 'タクソノミー全体：' + $.trim($select.find('option:selected').text());
+      addTargetRule('taxonomy_all', { taxonomy: taxonomy }, label, $picker);
+      refreshTaxonomyAddButton($picker);
+    });
     $(document).on('input', '.ship-modal-target-term-search', function () {
       var $picker = $(this).closest('.ship-modal-target-picker');
       targetTermSearchPicker = $picker.get(0);
@@ -476,6 +505,7 @@
     });
     $(document).on('change', '.ship-modal-target-rule-taxonomy', function () {
       var $picker = $(this).closest('.ship-modal-target-picker');
+      refreshTaxonomyAddButton($picker);
       searchTargetTerms($picker);
     });
     $(document).on('change', '.ship-modal-target-rule-post-type', function () {
@@ -509,6 +539,7 @@
         });
         refreshPostTypeAddButton($picker);
         refreshSlugAddButton($picker);
+        refreshTaxonomyAddButton($picker);
       }
     });
     $(document).on('click', '.ship-modal-target-clear', function (event) {
@@ -520,6 +551,7 @@
       $picker.find('.ship-modal-target-term-result .button').prop('disabled', false).text('＋追加');
       refreshPostTypeAddButton($picker);
       refreshSlugAddButton($picker);
+      refreshTaxonomyAddButton($picker);
     });
     var frame;
     function selectImage(targetId, previewId) {

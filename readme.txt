@@ -3,7 +3,7 @@ Contributors: shipinc
 Requires at least: 4.8
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.9.9
+Stable tag: 1.10.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -38,6 +38,9 @@ GA4の同意状態は `window.ShipModalConsent.setAnalyticsConsent(true)` / `fal
 3. 「モーダル」から内容と表示設定を登録します。
 
 == Changelog ==
+
+= 1.10.0 =
+* 表示対象・除外対象に、個別タームだけでなくタクソノミー全体を指定できるよう改善。
 
 = 1.9.9 =
 * 表示対象の投稿タイプ単位指定で選択欄が表示されない問題を修正。

@@ -963,6 +963,15 @@ final class Ship_Modal
                 $normalized[$key] = array('type' => 'slug_contains', 'keyword' => $keyword);
                 continue;
             }
+            if ('taxonomy_all' === $type) {
+                $taxonomy = isset($rule['taxonomy']) && is_scalar($rule['taxonomy']) ? sanitize_key((string) $rule['taxonomy']) : '';
+                if (! isset($targetable_taxonomies[$taxonomy])) {
+                    continue;
+                }
+                $key = 'taxonomy_all:' . $taxonomy;
+                $normalized[$key] = array('type' => 'taxonomy_all', 'taxonomy' => $taxonomy);
+                continue;
+            }
             if ('taxonomy' !== $type) {
                 continue;
             }
@@ -1042,6 +1051,29 @@ final class Ship_Modal
             return false !== stripos($slug, $keyword);
         }
 
+        if ('taxonomy_all' === $rule['type'] && ! empty($rule['taxonomy'])) {
+            $taxonomy = $rule['taxonomy'];
+            $targetable_taxonomies = $this->targetable_taxonomies();
+            if (! isset($targetable_taxonomies[$taxonomy])) {
+                return false;
+            }
+
+            if (is_singular()) {
+                $post_id = get_queried_object_id();
+                $post_type = get_post_type($post_id);
+                $targetable_types = $this->targetable_post_types();
+                if (isset($targetable_types[$post_type]) && is_object_in_taxonomy($post_type, $taxonomy)) {
+                    $terms = get_the_terms($post_id, $taxonomy);
+                    if (! is_wp_error($terms) && ! empty($terms)) {
+                        return true;
+                    }
+                }
+            }
+
+            $queried_object = get_queried_object();
+            return $queried_object instanceof WP_Term && $taxonomy === $queried_object->taxonomy;
+        }
+
         if ('taxonomy' !== $rule['type'] || empty($rule['taxonomy']) || empty($rule['term_id'])) {
             return false;
         }
@@ -1086,6 +1118,9 @@ final class Ship_Modal
         $taxonomy_help = $is_exclude
             ? '選んだタームと子タームの一覧ページ、および該当する記事を表示対象から除外します。'
             : '選んだタームと子タームの一覧ページ、および該当する記事を表示対象にします。';
+        $taxonomy_all_help = $is_exclude
+            ? '選んだタクソノミーのすべてのターム一覧と、そのタームが付いた記事を表示対象から除外します。'
+            : '選んだタクソノミーのすべてのターム一覧と、そのタームが付いた記事を表示対象にします。';
         $rule_index = 0;
         $selected_posts = $ids ? get_posts(array(
             'post__in' => $ids,
@@ -1125,7 +1160,7 @@ final class Ship_Modal
                 echo '<option value="' . esc_attr($taxonomy) . '">' . esc_html($taxonomy_object->labels->name) . '</option>';
             }
         }
-        echo '</select></label><label>ターム名 <input type="search" class="widefat ship-modal-target-term-search" placeholder="ターム名で検索（2文字以上）"></label><div class="ship-modal-target-term-results"><p class="description">ターム名を2文字以上入力してください。</p></div><p class="description">' . esc_html($taxonomy_help) . '</p></div>';
+        echo '</select></label> <button type="button" class="button ship-modal-target-rule-add-taxonomy-all"' . (empty($targetable_taxonomies) ? ' disabled' : '') . '>タクソノミー全体を追加</button><p class="description">' . esc_html($taxonomy_all_help) . '</p><hr><label>個別のタームを検索 <input type="search" class="widefat ship-modal-target-term-search" placeholder="ターム名で検索（2文字以上）"></label><div class="ship-modal-target-term-results"><p class="description">ターム名を2文字以上入力してください。</p></div><p class="description">' . esc_html($taxonomy_help) . '</p></div>';
 
         echo '<div class="ship-modal-target-picker__selected-heading"><strong>' . esc_html($selected_label) . '</strong><button type="button" class="button-link ship-modal-target-clear">すべて解除</button></div><div class="ship-modal-target-selected">';
         foreach ($selected_posts as $selected_post) {
@@ -1139,6 +1174,12 @@ final class Ship_Modal
                 $rule_key = 'post_type:' . $post_type;
                 $rule_label = '投稿タイプ：' . $targetable_types[$post_type]->labels->name;
                 echo '<span class="ship-modal-target-chip" data-target-rule-key="' . esc_attr($rule_key) . '"><input type="hidden" name="' . esc_attr($rule_field) . '[' . esc_attr($rule_index) . '][type]" value="post_type"><input type="hidden" name="' . esc_attr($rule_field) . '[' . esc_attr($rule_index) . '][post_type]" value="' . esc_attr($post_type) . '"><span>' . esc_html($rule_label) . '</span><button type="button" class="ship-modal-target-remove" aria-label="' . esc_attr($is_exclude ? '除外を解除' : '選択を解除') . '">×</button></span>';
+            } elseif ('taxonomy_all' === $rule['type']) {
+                $taxonomy = $rule['taxonomy'];
+                $rule_key = 'taxonomy_all:' . $taxonomy;
+                $taxonomy_label = isset($targetable_taxonomies[$taxonomy]) ? $targetable_taxonomies[$taxonomy]->labels->name : $taxonomy;
+                $rule_label = 'タクソノミー全体：' . $taxonomy_label;
+                echo '<span class="ship-modal-target-chip" data-target-rule-key="' . esc_attr($rule_key) . '"><input type="hidden" name="' . esc_attr($rule_field) . '[' . esc_attr($rule_index) . '][type]" value="taxonomy_all"><input type="hidden" name="' . esc_attr($rule_field) . '[' . esc_attr($rule_index) . '][taxonomy]" value="' . esc_attr($taxonomy) . '"><span>' . esc_html($rule_label) . '</span><button type="button" class="ship-modal-target-remove" aria-label="' . esc_attr($is_exclude ? '除外を解除' : '選択を解除') . '">×</button></span>';
             } elseif ('taxonomy' === $rule['type']) {
                 $taxonomy = $rule['taxonomy'];
                 $term_id = absint($rule['term_id']);
