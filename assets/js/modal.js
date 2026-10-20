@@ -206,6 +206,38 @@
     });
   }
 
+  function preloadModalImages(modal) {
+    if (!modal || modal.dataset.shipModalImagesPreloaded === '1' || !canShow(modal)) return;
+    var pages = modal.querySelector('.ship-modal__pages');
+    var root = pages ? pages.querySelector('.ship-modal__page.is-active') : modal.querySelector('.ship-modal__content');
+    if (!root || !root.querySelector('img[data-ship-modal-src]')) return;
+    // 表示条件が確定した後に実画像URLを戻し、既存の低優先度指定を維持する。
+    hydrateImages(root);
+    modal.dataset.shipModalImagesPreloaded = '1';
+  }
+
+  function scheduleModalImagePreload(modal, opensAt) {
+    var now = Date.now();
+    var preloadAt = Math.max(now + 1000, opensAt - 2000);
+    // 表示までの余裕が短い場合はページ読込と競合させず、表示開始時に読み込む。
+    if (preloadAt >= opensAt - 500) return;
+    runAt(preloadAt, function () {
+      var preloadWhenIdle = function () {
+        var preload = function () {
+          if (Date.now() >= opensAt - 500 || activeModal || !modal.hidden || !canShow(modal)) return;
+          preloadModalImages(modal);
+        };
+        if (typeof window.requestIdleCallback === 'function') {
+          window.requestIdleCallback(preload, { timeout: 1000 });
+        } else {
+          window.setTimeout(preload, 250);
+        }
+      };
+      if (document.readyState === 'complete') preloadWhenIdle();
+      else window.addEventListener('load', preloadWhenIdle, { once: true });
+    });
+  }
+
   function trackServer(modal, event) {
     if (!modal || !config.ajaxUrl || (!modal.dataset.eventToken && !config.nonce)) return;
     var eventId = randomEventId();
@@ -693,6 +725,8 @@
       var trigger = modal.dataset.trigger || 'auto';
       if (trigger === 'auto') {
         var delay = Math.max(0, parseInt(modal.dataset.delay || '0', 10)) * 1000;
+        var opensAt = Date.now() + delay;
+        if (delay >= 2000) scheduleModalImagePreload(modal, opensAt);
         window.setTimeout(function () { openModal(modal); }, delay);
       } else if (trigger === 'scroll') {
         bindScrollTrigger(modal);
