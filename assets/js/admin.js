@@ -44,7 +44,7 @@
     var isSpMaxWidth = $value.attr('id') === 'ship-modal-max_width_sp';
     var max = isSpMaxWidth ? (unit === 'px' ? 1200 : 100) : (unit === 'px' ? 200 : 100);
     $value.attr('max', max);
-    var current = parseInt($value.val(), 10);
+    var current = parseFloat($value.val());
     if (!isNaN(current) && current > max) $value.val(max).trigger('input').trigger('change');
   }
 

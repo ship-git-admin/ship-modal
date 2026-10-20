@@ -810,10 +810,25 @@ final class Ship_Modal
         return in_array($unit, $allowed, true) ? $unit : 'px';
     }
 
+    private function normalize_decimal_length($value, $min, $max, $default = '0')
+    {
+        if (! is_scalar($value)) {
+            return (string) $default;
+        }
+
+        $raw = trim((string) $value);
+        if (! preg_match('/\A(?:\d+(?:\.\d{0,2})?|\.\d{1,2})\z/', $raw)) {
+            return (string) $default;
+        }
+
+        $number = min((float) $max, max((float) $min, (float) $raw));
+        return rtrim(rtrim(number_format(round($number, 2), 2, '.', ''), '0'), '.');
+    }
+
     private function resolved_max_width($post_id)
     {
-        $max_width = (int) $this->meta($post_id, 'max_width', 0);
-        if ($max_width < 1) {
+        $max_width = $this->normalize_decimal_length($this->meta($post_id, 'max_width', 0), 0, 1200, '0');
+        if ((float) $max_width < 1) {
             $image_id = absint($this->meta($post_id, 'image_id', 0));
             $image_metadata = $image_id ? wp_get_attachment_metadata($image_id) : false;
             $image_width = is_array($image_metadata) && ! empty($image_metadata['width'])
@@ -826,7 +841,7 @@ final class Ship_Modal
             $max_width = $image_width > 0 ? $image_width : 620;
         }
 
-        return min(1200, max(280, $max_width));
+        return $this->normalize_decimal_length($max_width, 280, 1200, '620');
     }
 
     /**
@@ -1093,12 +1108,12 @@ final class Ship_Modal
         }
         $border_radius = min(48, max(0, (int) $this->meta($post->ID, 'border_radius', 0)));
         $padding = min(64, max(0, (int) $this->meta($post->ID, 'padding', 20)));
-        $stored_max_width = (int) $this->meta($post->ID, 'max_width', 0);
-        $max_width = $stored_max_width > 0 ? min(1200, max(280, $stored_max_width)) : '';
-        $stored_max_width_sp = (int) $this->meta($post->ID, 'max_width_sp', 0);
+        $stored_max_width = $this->normalize_decimal_length($this->meta($post->ID, 'max_width', 0), 0, 1200, '0');
+        $max_width = (float) $stored_max_width > 0 ? $this->normalize_decimal_length($stored_max_width, 280, 1200, '280') : '';
+        $stored_max_width_sp = $this->normalize_decimal_length($this->meta($post->ID, 'max_width_sp', 0), 0, 1200, '0');
         $max_width_sp_unit = $this->normalize_length_unit($this->meta($post->ID, 'max_width_sp_unit', 'px'), array('px', '%'));
         $max_width_sp_limit = '%' === $max_width_sp_unit ? 100 : 1200;
-        $max_width_sp = $stored_max_width_sp > 0 ? min($max_width_sp_limit, max(1, $stored_max_width_sp)) : '';
+        $max_width_sp = (float) $stored_max_width_sp > 0 ? $this->normalize_decimal_length($stored_max_width_sp, 1, $max_width_sp_limit, '1') : '';
         $position_margin_defaults = array(
             'pc' => array('x' => 24, 'y' => 24),
             'tb' => array('x' => 24, 'y' => 24),
@@ -1112,7 +1127,7 @@ final class Ship_Modal
                 $unit = $this->normalize_length_unit($this->meta($post->ID, $meta_key . '_unit', 'px'));
                 $limit = 'px' === $unit ? 200 : 100;
                 $position_margin_units[$device][$axis] = $unit;
-                $position_margins[$device][$axis] = min($limit, max(0, (int) $this->meta($post->ID, $meta_key, $default)));
+                $position_margins[$device][$axis] = $this->normalize_decimal_length($this->meta($post->ID, $meta_key, $default), 0, $limit, (string) $default);
             }
         }
         $preview_url = $this->admin_action_url(
@@ -1192,14 +1207,14 @@ final class Ship_Modal
             <tr class="ship-modal-side-position-row"><th>画面端からの余白</th><td>
                 <details class="ship-modal-position-settings">
                     <summary>端末ごとに調整（任意）</summary>
-                    <p class="description">右端・下端からの距離を調整します。pxは固定値、vwは画面幅基準、％はX軸で画面幅・Y軸で画面高さに対する割合です。</p>
+                    <p class="description">右端・下端からの距離を調整します。pxは固定値、vwは画面幅基準、％はX軸で画面幅・Y軸で画面高さに対する割合です。小数点以下2桁まで指定できます。</p>
                     <table class="widefat striped ship-modal-position-table">
                         <thead><tr><th scope="col">端末</th><th scope="col">X軸（右端）</th><th scope="col">Y軸（下端）</th></tr></thead>
                         <tbody>
                             <?php foreach (array('pc' => 'PC（1025px以上）', 'tb' => 'TB（768〜1024px）', 'sp' => 'SP（767px以下）') as $device => $device_label) : ?>
                                 <tr><th scope="row"><?php echo esc_html($device_label); ?></th>
                                     <?php foreach (array('x' => 'x', 'y' => 'y') as $axis => $axis_label) : ?>
-                                        <td><label class="screen-reader-text" for="ship-modal-margin-<?php echo esc_attr($device . '-' . $axis); ?>"><?php echo esc_html($device_label . ' ' . strtoupper($axis_label) . '軸の余白'); ?></label><input type="number" min="0" max="<?php echo 'px' === $position_margin_units[$device][$axis] ? '200' : '100'; ?>" step="1" class="small-text" name="ship_modal_margin_<?php echo esc_attr($device . '_' . $axis); ?>" id="ship-modal-margin-<?php echo esc_attr($device . '-' . $axis); ?>" value="<?php echo esc_attr($position_margins[$device][$axis]); ?>"> <select class="ship-modal-length-unit" name="ship_modal_margin_<?php echo esc_attr($device . '_' . $axis); ?>_unit" aria-label="<?php echo esc_attr($device_label . ' ' . strtoupper($axis_label) . '軸の単位'); ?>"><?php foreach (array('px' => 'px', 'vw' => 'vw', '%' => '%') as $unit_value => $unit_label) : ?><option value="<?php echo esc_attr($unit_value); ?>" <?php selected($position_margin_units[$device][$axis], $unit_value); ?>><?php echo esc_html($unit_label); ?></option><?php endforeach; ?></select></td>
+                                        <td><label class="screen-reader-text" for="ship-modal-margin-<?php echo esc_attr($device . '-' . $axis); ?>"><?php echo esc_html($device_label . ' ' . strtoupper($axis_label) . '軸の余白'); ?></label><input type="number" min="0" max="<?php echo 'px' === $position_margin_units[$device][$axis] ? '200' : '100'; ?>" step="0.01" class="small-text" name="ship_modal_margin_<?php echo esc_attr($device . '_' . $axis); ?>" id="ship-modal-margin-<?php echo esc_attr($device . '-' . $axis); ?>" value="<?php echo esc_attr($position_margins[$device][$axis]); ?>"> <select class="ship-modal-length-unit" name="ship_modal_margin_<?php echo esc_attr($device . '_' . $axis); ?>_unit" aria-label="<?php echo esc_attr($device_label . ' ' . strtoupper($axis_label) . '軸の単位'); ?>"><?php foreach (array('px' => 'px', 'vw' => 'vw', '%' => '%') as $unit_value => $unit_label) : ?><option value="<?php echo esc_attr($unit_value); ?>" <?php selected($position_margin_units[$device][$axis], $unit_value); ?>><?php echo esc_html($unit_label); ?></option><?php endforeach; ?></select></td>
                                     <?php endforeach; ?>
                                 </tr>
                             <?php endforeach; ?>
@@ -1211,8 +1226,8 @@ final class Ship_Modal
             <tr><th><label for="ship-modal-border_radius">角丸（border-radius）</label></th><td><input type="number" min="0" max="48" step="1" class="small-text" name="ship_modal_border_radius" id="ship-modal-border_radius" value="<?php echo esc_attr($border_radius); ?>"> px <p class="description">0〜48px。0なら角丸なし。</p></td></tr>
             <tr><th><label for="ship-modal-padding">内側の余白（padding）</label></th><td><input type="number" min="0" max="64" step="1" class="small-text" name="ship_modal_padding" id="ship-modal-padding" value="<?php echo esc_attr($padding); ?>"> px <p class="description">0〜64px。画像のみフレームは画像をコンテナいっぱいに表示します。</p></td></tr>
             <?php endif; ?>
-            <tr><th><label for="ship-modal-max_width">PC用 最大幅</label></th><td><input type="number" min="280" max="1200" step="1" class="small-text" name="ship_modal_max_width" id="ship-modal-max_width" value="<?php echo esc_attr($max_width); ?>" placeholder="自動"> px <p class="description">空欄なら基本画像の横幅に合わせます。画像がない場合は620pxです。基本画像を選ぶと横幅を自動入力します（280〜1200pxの範囲）。</p></td></tr>
-            <tr><th><label for="ship-modal-max_width_sp">SP用 最大幅</label></th><td><input type="number" min="1" max="<?php echo esc_attr($max_width_sp_limit); ?>" step="1" class="small-text" name="ship_modal_max_width_sp" id="ship-modal-max_width_sp" value="<?php echo esc_attr($max_width_sp); ?>" placeholder="PC用を使用"> <select class="ship-modal-length-unit" name="ship_modal_max_width_sp_unit" id="ship-modal-max_width_sp_unit"><option value="px" <?php selected($max_width_sp_unit, 'px'); ?>>px</option><option value="%" <?php selected($max_width_sp_unit, '%'); ?>>%</option></select><p class="description">任意。空欄ならPC用の最大幅を使います。1〜1200px、または1〜100％で指定できます。</p></td></tr>
+            <tr><th><label for="ship-modal-max_width">PC用 最大幅</label></th><td><input type="number" min="280" max="1200" step="0.01" class="small-text" name="ship_modal_max_width" id="ship-modal-max_width" value="<?php echo esc_attr($max_width); ?>" placeholder="自動"> px <p class="description">空欄なら基本画像の横幅に合わせます。画像がない場合は620pxです。基本画像を選ぶと横幅を自動入力します（280〜1200pxの範囲）。小数点以下2桁まで指定できます。</p></td></tr>
+            <tr><th><label for="ship-modal-max_width_sp">SP用 最大幅</label></th><td><input type="number" min="1" max="<?php echo esc_attr($max_width_sp_limit); ?>" step="0.01" class="small-text" name="ship_modal_max_width_sp" id="ship-modal-max_width_sp" value="<?php echo esc_attr($max_width_sp); ?>" placeholder="PC用を使用"> <select class="ship-modal-length-unit" name="ship_modal_max_width_sp_unit" id="ship-modal-max_width_sp_unit"><option value="px" <?php selected($max_width_sp_unit, 'px'); ?>>px</option><option value="%" <?php selected($max_width_sp_unit, '%'); ?>>%</option></select><p class="description">任意。空欄ならPC用の最大幅を使います。1〜1200px、または1〜100％で指定できます。小数点以下2桁まで指定できます。</p></td></tr>
             <?php if (! $image_only_mode) : ?><tr><th><label for="ship-modal-custom-css">上級者向け</label></th><td><details class="ship-modal-advanced-settings"><summary>このモーダル専用のCustom CSS</summary><textarea class="large-text code" rows="8" name="ship_modal_custom_css" id="ship-modal-custom-css" spellcheck="false"><?php echo esc_textarea($custom_css); ?></textarea><p class="description">このモーダルだけに適用するCSSを入力できます。<code>.ship-modal--id-<?php echo absint($post->ID); ?></code> を先頭に付けて指定してください。<code>&lt;style&gt;</code>タグは不要です。保存後に公開ページで必ず確認してください。</p></details></td></tr><?php endif; ?>
         </table>
         <?php if (! $image_only_mode) : ?><script type="text/html" id="ship-modal-page-template"><?php $this->render_page_row('__INDEX__', array()); ?></script><?php endif; ?>
@@ -1527,7 +1542,7 @@ final class Ship_Modal
         $max_width_raw = isset($_POST['ship_modal_max_width']) && is_scalar($_POST['ship_modal_max_width'])
             ? trim((string) wp_unslash($_POST['ship_modal_max_width']))
             : (string) $this->meta($post_id, 'max_width', 0);
-        $max_width = '' === $max_width_raw ? 0 : min(1200, max(280, absint($max_width_raw)));
+        $max_width = '' === $max_width_raw ? 0 : $this->normalize_decimal_length($max_width_raw, 280, 1200, '280');
         $max_width_sp_unit = isset($_POST['ship_modal_max_width_sp_unit'])
             ? $this->normalize_length_unit(wp_unslash($_POST['ship_modal_max_width_sp_unit']), array('px', '%'))
             : $this->normalize_length_unit($this->meta($post_id, 'max_width_sp_unit', 'px'), array('px', '%'));
@@ -1537,7 +1552,7 @@ final class Ship_Modal
             : (string) $this->meta($post_id, 'max_width_sp', 0);
         $max_width_sp = '' === $max_width_sp_raw
             ? 0
-            : min($max_width_sp_limit, max(1, absint($max_width_sp_raw)));
+            : $this->normalize_decimal_length($max_width_sp_raw, 1, $max_width_sp_limit, '1');
         $scope = isset($_POST['ship_modal_scope'])
             ? sanitize_key(wp_unslash($_POST['ship_modal_scope']))
             : $this->meta($post_id, 'scope', 'front');
@@ -1682,9 +1697,9 @@ final class Ship_Modal
                     ? $this->normalize_length_unit(wp_unslash($_POST['ship_modal_' . $unit_key]))
                     : $this->normalize_length_unit($this->meta($post_id, $unit_key, 'px'));
                 $limit = 'px' === $unit ? 200 : 100;
-                $value = isset($_POST['ship_modal_' . $meta_key])
-                    ? min($limit, max(0, absint(wp_unslash($_POST['ship_modal_' . $meta_key]))))
-                    : min($limit, max(0, (int) $this->meta($post_id, $meta_key, $default)));
+                $value = isset($_POST['ship_modal_' . $meta_key]) && is_scalar($_POST['ship_modal_' . $meta_key])
+                    ? $this->normalize_decimal_length(wp_unslash($_POST['ship_modal_' . $meta_key]), 0, $limit, '0')
+                    : $this->normalize_decimal_length($this->meta($post_id, $meta_key, $default), 0, $limit, (string) $default);
                 update_post_meta($post_id, '_ship_modal_' . $meta_key, $value);
                 update_post_meta($post_id, '_ship_modal_' . $unit_key, $unit);
             }
@@ -2402,15 +2417,15 @@ final class Ship_Modal
         $max_width = $this->resolved_max_width($post_id);
         $max_width_sp_unit = $this->normalize_length_unit($this->meta($post_id, 'max_width_sp_unit', 'px'), array('px', '%'));
         $max_width_sp_limit = '%' === $max_width_sp_unit ? 100 : 1200;
-        $max_width_sp = (int) $this->meta($post_id, 'max_width_sp', 0);
-        $max_width_sp = $max_width_sp > 0 ? min($max_width_sp_limit, max(1, $max_width_sp)) : 0;
+        $max_width_sp = $this->normalize_decimal_length($this->meta($post_id, 'max_width_sp', 0), 0, $max_width_sp_limit, '0');
+        $max_width_sp = (float) $max_width_sp > 0 ? $this->normalize_decimal_length($max_width_sp, 1, $max_width_sp_limit, '1') : '0';
         $position_margins = array();
         foreach (array('pc' => array('x' => 24, 'y' => 24), 'tb' => array('x' => 24, 'y' => 24), 'sp' => array('x' => 12, 'y' => 12)) as $device => $axes) {
             foreach ($axes as $axis => $default) {
                 $meta_key = 'margin_' . $device . '_' . $axis;
                 $unit = $this->normalize_length_unit($this->meta($post_id, $meta_key . '_unit', 'px'));
                 $limit = 'px' === $unit ? 200 : 100;
-                $value = min($limit, max(0, (int) $this->meta($post_id, $meta_key, $default)));
+                $value = $this->normalize_decimal_length($this->meta($post_id, $meta_key, $default), 0, $limit, (string) $default);
                 $css_unit = '%' === $unit ? ('x' === $axis ? 'vw' : 'vh') : $unit;
                 $position_margins[$device][$axis] = $value . $css_unit;
             }
