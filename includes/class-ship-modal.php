@@ -1114,6 +1114,7 @@ final class Ship_Modal
         $max_width_sp_unit = $this->normalize_length_unit($this->meta($post->ID, 'max_width_sp_unit', 'px'), array('px', '%'));
         $max_width_sp_limit = '%' === $max_width_sp_unit ? 100 : 1200;
         $max_width_sp = (float) $stored_max_width_sp > 0 ? $this->normalize_decimal_length($stored_max_width_sp, 1, $max_width_sp_limit, '1') : '';
+        $sp_breakpoint = min(1200, max(320, (int) $this->meta($post->ID, 'sp_breakpoint', 767)));
         $position_margin_defaults = array(
             'pc' => array('x' => 24, 'y' => 24),
             'tb' => array('x' => 24, 'y' => 24),
@@ -1187,7 +1188,7 @@ final class Ship_Modal
                     <input type="hidden" name="ship_modal_image_id_mobile" id="ship-modal-image-id-mobile" value="<?php echo esc_attr($mobile_image_id); ?>">
                     <div id="ship-modal-image-preview-mobile"><?php if ($mobile_image_url) : ?><img src="<?php echo esc_url($mobile_image_url); ?>" alt="" style="max-width:100%;height:auto;"><?php endif; ?></div>
                     <p><button type="button" class="button" id="ship-modal-select-image-mobile">画像を選択</button> <button type="button" class="button" id="ship-modal-remove-image-mobile">削除</button></p>
-                    <p class="description">スマホ幅（767px以下）で切り替えます。未設定なら基本画像をそのまま使用します。</p>
+                    <p class="description">下のSP切替幅以下で切り替えます。未設定なら基本画像をそのまま使用します。</p>
                 </td>
             </tr>
             <tr class="ship-modal-single-image-alt-row">
@@ -1211,7 +1212,7 @@ final class Ship_Modal
                     <table class="widefat striped ship-modal-position-table">
                         <thead><tr><th scope="col">端末</th><th scope="col">X軸（右端）</th><th scope="col">Y軸（下端）</th></tr></thead>
                         <tbody>
-                            <?php foreach (array('pc' => 'PC（1025px以上）', 'tb' => 'TB（768〜1024px）', 'sp' => 'SP（767px以下）') as $device => $device_label) : ?>
+                            <?php foreach (array('pc' => 'PC（1025px以上）', 'tb' => 'TB（768〜1024px）', 'sp' => 'SP（' . $sp_breakpoint . 'px以下）') as $device => $device_label) : ?>
                                 <tr><th scope="row"><?php echo esc_html($device_label); ?></th>
                                     <?php foreach (array('x' => 'x', 'y' => 'y') as $axis => $axis_label) : ?>
                                         <td><label class="screen-reader-text" for="ship-modal-margin-<?php echo esc_attr($device . '-' . $axis); ?>"><?php echo esc_html($device_label . ' ' . strtoupper($axis_label) . '軸の余白'); ?></label><input type="number" min="0" max="<?php echo 'px' === $position_margin_units[$device][$axis] ? '200' : '100'; ?>" step="0.01" class="small-text" name="ship_modal_margin_<?php echo esc_attr($device . '_' . $axis); ?>" id="ship-modal-margin-<?php echo esc_attr($device . '-' . $axis); ?>" value="<?php echo esc_attr($position_margins[$device][$axis]); ?>"> <select class="ship-modal-length-unit" name="ship_modal_margin_<?php echo esc_attr($device . '_' . $axis); ?>_unit" aria-label="<?php echo esc_attr($device_label . ' ' . strtoupper($axis_label) . '軸の単位'); ?>"><?php foreach (array('px' => 'px', 'vw' => 'vw', '%' => '%') as $unit_value => $unit_label) : ?><option value="<?php echo esc_attr($unit_value); ?>" <?php selected($position_margin_units[$device][$axis], $unit_value); ?>><?php echo esc_html($unit_label); ?></option><?php endforeach; ?></select></td>
@@ -1228,6 +1229,7 @@ final class Ship_Modal
             <?php endif; ?>
             <tr><th><label for="ship-modal-max_width">PC用 最大幅</label></th><td><input type="number" min="280" max="1200" step="0.01" class="small-text" name="ship_modal_max_width" id="ship-modal-max_width" value="<?php echo esc_attr($max_width); ?>" placeholder="自動"> px <p class="description">空欄なら基本画像の横幅に合わせます。画像がない場合は620pxです。基本画像を選ぶと横幅を自動入力します（280〜1200pxの範囲）。小数点以下2桁まで指定できます。</p></td></tr>
             <tr><th><label for="ship-modal-max_width_sp">SP用 最大幅</label></th><td><input type="number" min="1" max="<?php echo esc_attr($max_width_sp_limit); ?>" step="0.01" class="small-text" name="ship_modal_max_width_sp" id="ship-modal-max_width_sp" value="<?php echo esc_attr($max_width_sp); ?>" placeholder="PC用を使用"> <select class="ship-modal-length-unit" name="ship_modal_max_width_sp_unit" id="ship-modal-max_width_sp_unit"><option value="px" <?php selected($max_width_sp_unit, 'px'); ?>>px</option><option value="%" <?php selected($max_width_sp_unit, '%'); ?>>%</option></select><p class="description">任意。空欄ならPC用の最大幅を使います。1〜1200px、または1〜100％で指定できます。小数点以下2桁まで指定できます。</p></td></tr>
+            <tr><th><label for="ship-modal-sp_breakpoint">SP切替幅</label></th><td><input type="number" min="320" max="1200" step="1" class="small-text" name="ship_modal_sp_breakpoint" id="ship-modal-sp_breakpoint" value="<?php echo esc_attr($sp_breakpoint); ?>"> px <p class="description">この幅以下でSP用画像・余白・最大幅とSP向けレイアウトを適用します。320〜1200pxで指定できます。初期値は767pxです。</p></td></tr>
             <?php if (! $image_only_mode) : ?><tr><th><label for="ship-modal-custom-css">上級者向け</label></th><td><details class="ship-modal-advanced-settings"><summary>このモーダル専用のCustom CSS</summary><textarea class="large-text code" rows="8" name="ship_modal_custom_css" id="ship-modal-custom-css" spellcheck="false"><?php echo esc_textarea($custom_css); ?></textarea><p class="description">このモーダルだけに適用するCSSを入力できます。<code>.ship-modal--id-<?php echo absint($post->ID); ?></code> を先頭に付けて指定してください。<code>&lt;style&gt;</code>タグは不要です。保存後に公開ページで必ず確認してください。</p></details></td></tr><?php endif; ?>
         </table>
         <?php if (! $image_only_mode) : ?><script type="text/html" id="ship-modal-page-template"><?php $this->render_page_row('__INDEX__', array()); ?></script><?php endif; ?>
@@ -1313,9 +1315,17 @@ final class Ship_Modal
         }
         $button_label_limits = $this->button_label_limits();
         $target_ids = array_values(array_filter(array_map('absint', (array) $this->meta($post->ID, 'target_ids', array()))));
+        $exclude_ids = array_values(array_filter(array_map('absint', (array) $this->meta($post->ID, 'exclude_ids', array()))));
         $targetable_types = $this->targetable_post_types();
         $selected_posts = $target_ids ? get_posts(array(
             'post__in' => $target_ids,
+            'post_type' => array_keys($targetable_types),
+            'post_status' => 'publish',
+            'posts_per_page' => -1,
+            'orderby' => 'post__in',
+        )) : array();
+        $excluded_posts = $exclude_ids ? get_posts(array(
+            'post__in' => $exclude_ids,
             'post_type' => array_keys($targetable_types),
             'post_status' => 'publish',
             'posts_per_page' => -1,
@@ -1331,17 +1341,30 @@ final class Ship_Modal
                     <?php endforeach; ?>
                 </div>
                 <p class="description ship-modal-scope-warning">新規モーダルの初期値は「トップページのみ」です。「全ページ（注意）」はサイト全体に表示されるため、必要な場合だけ選択してください。</p>
-                <div class="ship-modal-target-picker">
+                <div class="ship-modal-target-picker ship-modal-target-picker--include" data-target-field="ship_modal_target_ids[]">
                     <div class="ship-modal-target-picker__heading"><strong>指定ページを追加</strong><span class="ship-modal-target-count" aria-live="polite"></span></div>
-                    <div class="ship-modal-target-search-row"><input type="search" id="ship-modal-target-search" class="widefat" placeholder="ページ名・記事タイトルで検索（2文字以上）"><select id="ship-modal-target-post-type"><option value="">すべての種類</option><?php foreach ($targetable_types as $target_type => $target_type_object) : ?><option value="<?php echo esc_attr($target_type); ?>"><?php echo esc_html($target_type_object->labels->name); ?></option><?php endforeach; ?></select></div>
-                    <div id="ship-modal-target-results" class="ship-modal-target-results"><p class="description">検索結果から表示対象を追加できます。</p></div>
-                    <div class="ship-modal-target-picker__selected-heading"><strong>選択中</strong><button type="button" class="button-link" id="ship-modal-target-clear">すべて解除</button></div>
-                    <div id="ship-modal-target-selected" class="ship-modal-target-selected">
+                    <div class="ship-modal-target-search-row"><input type="search" class="widefat ship-modal-target-search" aria-label="表示対象ページを検索" placeholder="ページ名・記事タイトルで検索（2文字以上）"><select class="ship-modal-target-post-type" aria-label="表示対象の種類"><option value="">すべての種類</option><?php foreach ($targetable_types as $target_type => $target_type_object) : ?><option value="<?php echo esc_attr($target_type); ?>"><?php echo esc_html($target_type_object->labels->name); ?></option><?php endforeach; ?></select></div>
+                    <div class="ship-modal-target-results"><p class="description">検索結果から表示対象を追加できます。</p></div>
+                    <div class="ship-modal-target-picker__selected-heading"><strong>選択中</strong><button type="button" class="button-link ship-modal-target-clear">すべて解除</button></div>
+                    <div class="ship-modal-target-selected">
                         <?php foreach ($selected_posts as $selected_post) : $selected_type = get_post_type($selected_post); $selected_type_label = isset($targetable_types[$selected_type]) ? $targetable_types[$selected_type]->labels->singular_name : $selected_type; ?>
                             <span class="ship-modal-target-chip" data-target-id="<?php echo esc_attr($selected_post->ID); ?>"><input type="hidden" name="ship_modal_target_ids[]" value="<?php echo esc_attr($selected_post->ID); ?>"><span><?php echo esc_html('[' . $selected_type_label . '] ' . get_the_title($selected_post)); ?></span><button type="button" class="ship-modal-target-remove" aria-label="選択を解除">×</button></span>
                         <?php endforeach; ?>
                     </div>
                     <p class="description">公開中のページ・記事だけが検索対象です。指定ページのみを選んだ場合、ここで選択したページにだけ表示されます。</p>
+                </div>
+                <div class="ship-modal-target-picker ship-modal-target-picker--exclude" data-target-field="ship_modal_exclude_ids[]">
+                    <input type="hidden" name="ship_modal_exclude_ids_present" value="1">
+                    <div class="ship-modal-target-picker__heading"><strong>除外するページを追加</strong><span class="ship-modal-target-count" aria-live="polite"></span></div>
+                    <div class="ship-modal-target-search-row"><input type="search" class="widefat ship-modal-target-search" aria-label="除外するページを検索" placeholder="ページ名・記事タイトルで検索（2文字以上）"><select class="ship-modal-target-post-type" aria-label="除外するページの種類"><option value="">すべての種類</option><?php foreach ($targetable_types as $target_type => $target_type_object) : ?><option value="<?php echo esc_attr($target_type); ?>"><?php echo esc_html($target_type_object->labels->name); ?></option><?php endforeach; ?></select></div>
+                    <div class="ship-modal-target-results"><p class="description">検索結果から除外するページを追加できます。</p></div>
+                    <div class="ship-modal-target-picker__selected-heading"><strong>除外中</strong><button type="button" class="button-link ship-modal-target-clear">すべて解除</button></div>
+                    <div class="ship-modal-target-selected">
+                        <?php foreach ($excluded_posts as $excluded_post) : $excluded_type = get_post_type($excluded_post); $excluded_type_label = isset($targetable_types[$excluded_type]) ? $targetable_types[$excluded_type]->labels->singular_name : $excluded_type; ?>
+                            <span class="ship-modal-target-chip" data-target-id="<?php echo esc_attr($excluded_post->ID); ?>"><input type="hidden" name="ship_modal_exclude_ids[]" value="<?php echo esc_attr($excluded_post->ID); ?>"><span><?php echo esc_html('[' . $excluded_type_label . '] ' . get_the_title($excluded_post)); ?></span><button type="button" class="ship-modal-target-remove" aria-label="除外を解除">×</button></span>
+                        <?php endforeach; ?>
+                    </div>
+                    <p class="description">「全ページ」を選んだ場合でも、ここで指定した公開中のページ・記事には表示しません。</p>
                 </div>
             </td></tr>
             <tr><th><label for="ship-modal-trigger">起動方法</label></th><td>
@@ -1553,10 +1576,17 @@ final class Ship_Modal
         $max_width_sp = '' === $max_width_sp_raw
             ? 0
             : $this->normalize_decimal_length($max_width_sp_raw, 1, $max_width_sp_limit, '1');
+        $sp_breakpoint_raw = isset($_POST['ship_modal_sp_breakpoint']) && is_scalar($_POST['ship_modal_sp_breakpoint'])
+            ? trim((string) wp_unslash($_POST['ship_modal_sp_breakpoint']))
+            : (string) $this->meta($post_id, 'sp_breakpoint', 767);
+        $sp_breakpoint = '' === $sp_breakpoint_raw
+            ? min(1200, max(320, (int) $this->meta($post_id, 'sp_breakpoint', 767)))
+            : min(1200, max(320, absint($sp_breakpoint_raw)));
         $scope = isset($_POST['ship_modal_scope'])
             ? sanitize_key(wp_unslash($_POST['ship_modal_scope']))
             : $this->meta($post_id, 'scope', 'front');
         $raw_target_ids = isset($_POST['ship_modal_target_ids']) && is_array($_POST['ship_modal_target_ids']) ? $_POST['ship_modal_target_ids'] : array();
+        $raw_exclude_ids = isset($_POST['ship_modal_exclude_ids']) && is_array($_POST['ship_modal_exclude_ids']) ? $_POST['ship_modal_exclude_ids'] : array();
         if ('hybrid' === $type) {
             // 必須・文字数による保存ブロックは行わない。
         }
@@ -1689,6 +1719,7 @@ final class Ship_Modal
         update_post_meta($post_id, '_ship_modal_max_width', $max_width);
         update_post_meta($post_id, '_ship_modal_max_width_sp', $max_width_sp);
         update_post_meta($post_id, '_ship_modal_max_width_sp_unit', $max_width_sp_unit);
+        update_post_meta($post_id, '_ship_modal_sp_breakpoint', $sp_breakpoint);
         foreach (array('pc' => array('x' => 24, 'y' => 24), 'tb' => array('x' => 24, 'y' => 24), 'sp' => array('x' => 12, 'y' => 12)) as $device => $axes) {
             foreach ($axes as $axis => $default) {
                 $meta_key = 'margin_' . $device . '_' . $axis;
@@ -1718,6 +1749,17 @@ final class Ship_Modal
                 }
             }
             update_post_meta($post_id, '_ship_modal_target_ids', $target_ids);
+        }
+        if (isset($_POST['ship_modal_exclude_ids_present']) || 'all' === $scope) {
+            $exclude_ids = array();
+            $targetable_types = $this->targetable_post_types();
+            foreach (array_unique(array_map('absint', wp_unslash($raw_exclude_ids))) as $exclude_id) {
+                $exclude_post = $exclude_id ? get_post($exclude_id) : null;
+                if ($exclude_post && 'publish' === $exclude_post->post_status && isset($targetable_types[$exclude_post->post_type])) {
+                    $exclude_ids[] = $exclude_id;
+                }
+            }
+            update_post_meta($post_id, '_ship_modal_exclude_ids', $exclude_ids);
         }
         $design_values = array('center', 'bottom', 'side');
         if ($this->is_fullscreen_enabled()) {
@@ -2026,6 +2068,12 @@ final class Ship_Modal
             $target_ids = array_values(array_filter(array_map('absint', (array) $this->meta($post_id, 'target_ids', array()))));
             return is_singular() && in_array((int) get_queried_object_id(), $target_ids, true);
         }
+        if ('all' === $scope && is_singular()) {
+            $exclude_ids = array_values(array_filter(array_map('absint', (array) $this->meta($post_id, 'exclude_ids', array()))));
+            if (in_array((int) get_queried_object_id(), $exclude_ids, true)) {
+                return false;
+            }
+        }
         return true;
     }
 
@@ -2246,7 +2294,7 @@ final class Ship_Modal
         return false;
     }
 
-    private function render_image_content($image_id, $link_url, $alt, $new_tab = false, $mobile_image_id = 0)
+    private function render_image_content($image_id, $link_url, $alt, $new_tab = false, $mobile_image_id = 0, $sp_breakpoint = 767)
     {
         $image_id = absint($image_id);
         $mobile_image_id = absint($mobile_image_id);
@@ -2302,7 +2350,7 @@ final class Ship_Modal
                 $mobile_srcset = wp_get_attachment_image_url($mobile_image_id, 'full');
             }
             if ($mobile_srcset) {
-                $image = '<picture><source media="(max-width: 767px)" data-ship-modal-srcset="' . esc_attr($mobile_srcset) . '">' . $image . '</picture>';
+                $image = '<picture><source media="(max-width: ' . absint($sp_breakpoint) . 'px)" data-ship-modal-srcset="' . esc_attr($mobile_srcset) . '">' . $image . '</picture>';
             }
         }
         $link_url = esc_url($link_url);
@@ -2359,10 +2407,10 @@ final class Ship_Modal
         return false;
     }
 
-    private function render_page_content($page, $title, $index)
+    private function render_page_content($page, $title, $index, $sp_breakpoint = 767)
     {
         $page = is_array($page) ? $page : array();
-        $image = $this->render_image_content(isset($page['image_id']) ? $page['image_id'] : 0, isset($page['link_url']) ? $page['link_url'] : '', $title . ' ' . ((int) $index + 1) . 'ページ目', ! empty($page['link_new_tab']));
+        $image = $this->render_image_content(isset($page['image_id']) ? $page['image_id'] : 0, isset($page['link_url']) ? $page['link_url'] : '', $title . ' ' . ((int) $index + 1) . 'ページ目', ! empty($page['link_new_tab']), 0, $sp_breakpoint);
         $heading = isset($page['heading']) ? $page['heading'] : '';
         $body = isset($page['body']) ? $page['body'] : (isset($page['html']) ? wp_strip_all_tags($page['html']) : '');
         $buttons = isset($page['buttons']) ? $page['buttons'] : array();
@@ -2420,6 +2468,7 @@ final class Ship_Modal
         $max_width_sp_limit = '%' === $max_width_sp_unit ? 100 : 1200;
         $max_width_sp = $this->normalize_decimal_length($this->meta($post_id, 'max_width_sp', 0), 0, $max_width_sp_limit, '0');
         $max_width_sp = (float) $max_width_sp > 0 ? $this->normalize_decimal_length($max_width_sp, 1, $max_width_sp_limit, '1') : '0';
+        $sp_breakpoint = min(1200, max(320, (int) $this->meta($post_id, 'sp_breakpoint', 767)));
         $position_margins = array();
         foreach (array('pc' => array('x' => 24, 'y' => 24), 'tb' => array('x' => 24, 'y' => 24), 'sp' => array('x' => 12, 'y' => 12)) as $device => $axes) {
             foreach ($axes as $axis => $default) {
@@ -2448,10 +2497,10 @@ final class Ship_Modal
         $content = '';
         $content_class = '';
         if ('image' === $type) {
-            $content = $this->render_image_content($this->meta($post_id, 'image_id'), $this->meta($post_id, 'link_url'), $image_alt, '1' === $this->meta($post_id, 'link_new_tab', '0'), $mobile_image_id);
+            $content = $this->render_image_content($this->meta($post_id, 'image_id'), $this->meta($post_id, 'link_url'), $image_alt, '1' === $this->meta($post_id, 'link_new_tab', '0'), $mobile_image_id, $sp_breakpoint);
             $content_class = ' ship-modal__content--flush';
         } elseif ('hybrid' === $type) {
-            $image = $this->render_image_content($this->meta($post_id, 'image_id'), $this->meta($post_id, 'link_url'), $image_alt, '1' === $this->meta($post_id, 'link_new_tab', '0'), $mobile_image_id);
+            $image = $this->render_image_content($this->meta($post_id, 'image_id'), $this->meta($post_id, 'link_url'), $image_alt, '1' === $this->meta($post_id, 'link_new_tab', '0'), $mobile_image_id, $sp_breakpoint);
             $body = $body !== '' ? $body : wp_strip_all_tags($this->meta($post_id, 'html'));
             $copy = ($heading !== '' ? '<h2>' . esc_html($heading) . '</h2>' : '') . ($body !== '' ? '<p>' . wp_kses($body, array('strong' => array(), 'br' => array(), 'a' => array('href' => true, 'target' => true, 'rel' => true))) . '</p>' : '') . $this->render_button_markup($buttons);
             if ($image !== '' && $copy !== '') {
@@ -2486,7 +2535,7 @@ final class Ship_Modal
                     if ($this->page_has_copy($page)) {
                         $pager_has_copy = true;
                     }
-                    $page_markup .= '<section id="' . esc_attr($modal_id . '-page-' . $index) . '" class="ship-modal__page' . (0 === $index ? ' is-active' : '') . '" data-ship-modal-page-panel="' . esc_attr($index) . '" role="group" aria-label="' . esc_attr(((int) $index + 1) . ' / ' . $page_count . 'ページ') . '"' . (0 === $index ? '' : ' hidden') . ' aria-hidden="' . (0 === $index ? 'false' : 'true') . '">' . $this->render_page_content($page, $title, $index) . '</section>';
+                    $page_markup .= '<section id="' . esc_attr($modal_id . '-page-' . $index) . '" class="ship-modal__page' . (0 === $index ? ' is-active' : '') . '" data-ship-modal-page-panel="' . esc_attr($index) . '" role="group" aria-label="' . esc_attr(((int) $index + 1) . ' / ' . $page_count . 'ページ') . '"' . (0 === $index ? '' : ' hidden') . ' aria-hidden="' . (0 === $index ? 'false' : 'true') . '">' . $this->render_page_content($page, $title, $index, $sp_breakpoint) . '</section>';
                 }
                 $controls = '<nav class="ship-modal__pager" aria-label="モーダルページ切り替え"><button type="button" class="ship-modal__pager-arrow" data-ship-modal-page-prev aria-label="前のページ" disabled>前へ</button><div class="ship-modal__pager-dots">';
                 foreach ($pages as $index => $page) {
@@ -2523,7 +2572,7 @@ final class Ship_Modal
         }
         ?>
         <?php if ($custom_css !== '') : ?><style id="ship-modal-custom-css-<?php echo absint($post_id); ?>"><?php echo $custom_css; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?></style><?php endif; ?>
-        <div id="<?php echo esc_attr($modal_id); ?>" class="ship-modal ship-modal--<?php echo esc_attr($design); ?><?php echo $non_blocking_side ? ' ship-modal--non-blocking' : ''; ?> ship-modal--id-<?php echo absint($post_id); ?>" style="<?php echo esc_attr($modal_style); ?>" data-post-id="<?php echo absint($post_id); ?>" data-event-token="<?php echo esc_attr($this->event_token($post_id)); ?>" data-modal-title="<?php echo esc_attr($title); ?>" data-content-type="<?php echo esc_attr($type); ?>" data-design="<?php echo esc_attr($design); ?>" data-trigger="<?php echo esc_attr($trigger); ?>" data-frequency="<?php echo esc_attr($frequency); ?>" data-hide-days="<?php echo esc_attr($hide_days); ?>" data-delay="<?php echo esc_attr($delay); ?>" data-scroll-threshold="<?php echo esc_attr($scroll_threshold); ?>" data-schedule-start="<?php echo esc_attr($schedule_start ? $schedule_start * 1000 : 0); ?>" data-schedule-end="<?php echo esc_attr($schedule_end ? $schedule_end * 1000 : 0); ?>" data-auto-open="<?php echo 'auto' === $trigger ? '1' : '0'; ?>" data-close-overlay="<?php echo $close_overlay ? '1' : '0'; ?>" data-preview="<?php echo $preview ? '1' : '0'; ?>" role="dialog" aria-modal="<?php echo $non_blocking_side ? 'false' : 'true'; ?>" <?php if ($show_modal_title_heading && $title !== '') : ?>aria-labelledby="<?php echo esc_attr($modal_id); ?>-title"<?php else : ?>aria-label="<?php echo esc_attr($title !== '' ? $title : 'モーダル'); ?>"<?php endif; ?> hidden>
+        <div id="<?php echo esc_attr($modal_id); ?>" class="ship-modal ship-modal--<?php echo esc_attr($design); ?><?php echo $non_blocking_side ? ' ship-modal--non-blocking' : ''; ?> ship-modal--id-<?php echo absint($post_id); ?>" style="<?php echo esc_attr($modal_style); ?>" data-post-id="<?php echo absint($post_id); ?>" data-event-token="<?php echo esc_attr($this->event_token($post_id)); ?>" data-modal-title="<?php echo esc_attr($title); ?>" data-content-type="<?php echo esc_attr($type); ?>" data-design="<?php echo esc_attr($design); ?>" data-sp-breakpoint="<?php echo esc_attr($sp_breakpoint); ?>" data-trigger="<?php echo esc_attr($trigger); ?>" data-frequency="<?php echo esc_attr($frequency); ?>" data-hide-days="<?php echo esc_attr($hide_days); ?>" data-delay="<?php echo esc_attr($delay); ?>" data-scroll-threshold="<?php echo esc_attr($scroll_threshold); ?>" data-schedule-start="<?php echo esc_attr($schedule_start ? $schedule_start * 1000 : 0); ?>" data-schedule-end="<?php echo esc_attr($schedule_end ? $schedule_end * 1000 : 0); ?>" data-auto-open="<?php echo 'auto' === $trigger ? '1' : '0'; ?>" data-close-overlay="<?php echo $close_overlay ? '1' : '0'; ?>" data-preview="<?php echo $preview ? '1' : '0'; ?>" role="dialog" aria-modal="<?php echo $non_blocking_side ? 'false' : 'true'; ?>" <?php if ($show_modal_title_heading && $title !== '') : ?>aria-labelledby="<?php echo esc_attr($modal_id); ?>-title"<?php else : ?>aria-label="<?php echo esc_attr($title !== '' ? $title : 'モーダル'); ?>"<?php endif; ?> hidden>
             <div class="ship-modal__backdrop" data-ship-modal-close></div>
             <div class="ship-modal__dialog" role="document" tabindex="-1">
                 <?php if ($show_modal_title_heading && $title !== '') : ?><h2 id="<?php echo esc_attr($modal_id); ?>-title" class="screen-reader-text"><?php echo esc_html($title); ?></h2><?php endif; ?>
@@ -2549,6 +2598,9 @@ final class Ship_Modal
         $atts = shortcode_atts(array('id' => 0), $atts, 'ship_modal');
         $post_id = absint($atts['id']);
         if (! $post_id || 'ship_modal' !== get_post_type($post_id) || 'publish' !== get_post_status($post_id)) {
+            return '';
+        }
+        if ('all' === $this->meta($post_id, 'scope', 'front') && ! $this->is_scope_visible($post_id)) {
             return '';
         }
         wp_enqueue_style('ship-modal', SHIP_MODAL_URL . 'assets/css/modal.css', array(), SHIP_MODAL_VERSION);

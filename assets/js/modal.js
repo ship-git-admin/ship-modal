@@ -646,7 +646,10 @@
 
   function bindExitIntentTrigger(modal) {
     var hasFinePointer = window.matchMedia && (window.matchMedia('(pointer: fine)').matches || window.matchMedia('(hover: hover)').matches);
-    if (!hasFinePointer || window.innerWidth < 768) return;
+    var breakpoint = parseInt(modal.dataset.spBreakpoint || '767', 10);
+    if (!breakpoint || isNaN(breakpoint)) breakpoint = 767;
+    breakpoint = Math.max(320, Math.min(1200, breakpoint));
+    if (!hasFinePointer || window.innerWidth <= breakpoint) return;
     var fired = false;
     function evaluate(event) {
       if (fired || event.clientY > 10 || event.relatedTarget) return;
@@ -666,9 +669,20 @@
     window.setTimeout(function () { runAt(timestamp, callback); }, Math.min(remaining, 2147483647));
   }
 
+  function updateResponsiveState(modal) {
+    var breakpoint = parseInt(modal.dataset.spBreakpoint || '767', 10);
+    if (!breakpoint || isNaN(breakpoint)) breakpoint = 767;
+    breakpoint = Math.max(320, Math.min(1200, breakpoint));
+    var viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+    var isSp = viewportWidth <= breakpoint;
+    if (isSp && !modal.classList.contains('ship-modal--sp')) modal.classList.add('ship-modal--sp');
+    else if (!isSp && modal.classList.contains('ship-modal--sp')) modal.classList.remove('ship-modal--sp');
+  }
+
   function initializeModal(modal) {
     if (modal.dataset.shipModalInitialized === '1') return;
     modal.dataset.shipModalInitialized = '1';
+    updateResponsiveState(modal);
     setTriggerVisibility(modal, isWithinSchedule(modal) && canShow(modal));
     var initializeTrigger = function () {
       if (!canShow(modal)) {
@@ -705,6 +719,16 @@
       initializeModal(modal);
     });
   }
+
+  var responsiveResizeScheduled = false;
+  window.addEventListener('resize', function () {
+    if (responsiveResizeScheduled) return;
+    responsiveResizeScheduled = true;
+    window.requestAnimationFrame(function () {
+      responsiveResizeScheduled = false;
+      document.querySelectorAll('.ship-modal').forEach(updateResponsiveState);
+    });
+  });
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initialize, { once: true });
   else initialize();

@@ -4,9 +4,25 @@
   var adminConfig = window.ShipModalAdminConfig || {};
   var targetSearchRequest = null;
   var targetSearchTimer = null;
+  var targetSearchPicker = null;
 
   function currentScope() {
     return $('input[name="ship_modal_scope"]:checked').val() || 'front';
+  }
+
+  function refreshSpBreakpointLabel() {
+    var breakpoint = parseInt($('#ship-modal-sp_breakpoint').val(), 10);
+    if (isNaN(breakpoint)) return;
+    breakpoint = Math.max(320, Math.min(1200, breakpoint));
+    var label = 'SP（' + breakpoint + 'px以下）';
+    var $row = $('#ship-modal-margin-sp-x').closest('tr');
+    $row.children('th[scope="row"]').text(label);
+    $row.find('label.screen-reader-text').each(function () {
+      $(this).text($(this).text().replace(/^SP（[^）]*）/, label));
+    });
+    $row.find('select.ship-modal-length-unit').each(function () {
+      $(this).attr('aria-label', String($(this).attr('aria-label') || '').replace(/^SP（[^）]*）/, label));
+    });
   }
 
   function refreshTriggerHelp(trigger) {
@@ -24,7 +40,8 @@
     $('.ship-modal-hybrid-image-row').toggle(type === 'hybrid');
     $('.ship-modal-buttons-row').toggle(type === 'hybrid' || type === 'text');
     $('.ship-modal-pages-row').toggle(type === 'pager');
-    $('.ship-modal-target-picker').toggle(currentScope() === 'selected');
+    $('.ship-modal-target-picker--include').toggle(currentScope() === 'selected');
+    $('.ship-modal-target-picker--exclude').toggle(currentScope() === 'all');
     $('.ship-modal-side-position-row').toggle($('#ship-modal-design').val() === 'side');
     $('.ship-modal-hide-days-row').toggle($('#ship-modal-frequency').val() === 'closed_days');
     $('#ship-modal-body').removeAttr('maxlength');
@@ -124,9 +141,11 @@
     });
   }
 
-  function updateTargetCount() {
-    var count = $('#ship-modal-target-selected .ship-modal-target-chip').length;
-    $('.ship-modal-target-count').text(count ? count + '件選択中' : '未選択');
+  function updateTargetCount(picker) {
+    var $picker = $(picker);
+    var count = $picker.find('.ship-modal-target-selected .ship-modal-target-chip').length;
+    var label = $picker.hasClass('ship-modal-target-picker--exclude') ? '件除外中' : '件選択中';
+    $picker.find('.ship-modal-target-count').text(count ? count + label : '未選択');
   }
 
   function refreshStatsExportLink() {
@@ -144,50 +163,55 @@
     });
   }
 
-  function targetIsSelected(id) {
-    return $('#ship-modal-target-selected .ship-modal-target-chip[data-target-id="' + id + '"]').length > 0;
+  function targetIsSelected(id, picker) {
+    return $(picker).find('.ship-modal-target-selected .ship-modal-target-chip[data-target-id="' + id + '"]').length > 0;
   }
 
-  function showTargetMessage(message) {
-    $('#ship-modal-target-results').empty().append($('<p class="description"></p>').text(message));
+  function showTargetMessage(message, picker) {
+    $(picker).find('.ship-modal-target-results').empty().append($('<p class="description"></p>').text(message));
   }
 
-  function addTarget(id, label) {
-    if (!id || targetIsSelected(id)) return;
+  function addTarget(id, label, picker) {
+    var $picker = $(picker);
+    if (!id || targetIsSelected(id, $picker)) return;
     var $chip = $('<span class="ship-modal-target-chip"></span>').attr('data-target-id', id);
-    $('<input type="hidden" name="ship_modal_target_ids[]">').val(id).appendTo($chip);
+    $('<input type="hidden">').attr('name', $picker.attr('data-target-field')).val(id).appendTo($chip);
     $('<span></span>').text(label).appendTo($chip);
-    $('<button type="button" class="ship-modal-target-remove" aria-label="選択を解除">×</button>').appendTo($chip);
-    $('#ship-modal-target-selected').append($chip);
-    updateTargetCount();
+    var removeLabel = $picker.hasClass('ship-modal-target-picker--exclude') ? '除外を解除' : '選択を解除';
+    $('<button type="button" class="ship-modal-target-remove"></button>').attr('aria-label', removeLabel).text('×').appendTo($chip);
+    $picker.find('.ship-modal-target-selected').append($chip);
+    updateTargetCount($picker);
   }
 
-  function searchTargets() {
+  function searchTargets(picker) {
+    var $picker = $(picker);
+    if (!$picker.length) return;
     window.clearTimeout(targetSearchTimer);
     targetSearchTimer = null;
     if (targetSearchRequest) {
       targetSearchRequest.abort();
       targetSearchRequest = null;
     }
-    var query = $.trim($('#ship-modal-target-search').val() || '');
-    var postType = $('#ship-modal-target-post-type').val() || '';
+    targetSearchPicker = $picker.get(0);
+    var query = $.trim($picker.find('.ship-modal-target-search').val() || '');
+    var postType = $picker.find('.ship-modal-target-post-type').val() || '';
     if (query.length === 1) {
-      showTargetMessage('ページ名・記事タイトルを2文字以上入力してください。');
+      showTargetMessage('ページ名・記事タイトルを2文字以上入力してください。', $picker);
       return;
     }
     if (!adminConfig.ajaxUrl || !adminConfig.targetSearchNonce) {
-      showTargetMessage('検索設定を読み込めませんでした。ページを再読み込みしてください。');
+      showTargetMessage('検索設定を読み込めませんでした。ページを再読み込みしてください。', $picker);
       return;
     }
-    showTargetMessage(query ? '検索中…' : '最近の公開ページを読み込み中…');
+    showTargetMessage(query ? '検索中…' : '最近の公開ページを読み込み中…', $picker);
     var request = $.post(adminConfig.ajaxUrl, { action: 'ship_modal_search_targets', nonce: adminConfig.targetSearchNonce, modal_post_id: adminConfig.postId || '', q: query, post_type: postType });
     targetSearchRequest = request;
     request
       .done(function (response) {
-        if (targetSearchRequest !== request) return;
-        var $results = $('#ship-modal-target-results').empty();
+        if (targetSearchRequest !== request || targetSearchPicker !== $picker.get(0)) return;
+        var $results = $picker.find('.ship-modal-target-results').empty();
         if (!response || !response.success || !response.data || !response.data.length) {
-          showTargetMessage(query ? '該当する公開ページがありません。' : '公開ページがありません。');
+          showTargetMessage(query ? '該当する公開ページがありません。' : '公開ページがありません。', $picker);
           return;
         }
         response.data.forEach(function (item) {
@@ -196,12 +220,12 @@
           var $row = $('<div class="ship-modal-target-result"></div>');
           $('<span></span>').text(label).appendTo($row);
           var $button = $('<button type="button" class="button button-small">＋追加</button>').data({ targetId: id, targetLabel: label });
-          if (targetIsSelected(id)) $button.prop('disabled', true).text('選択済み');
+          if (targetIsSelected(id, $picker)) $button.prop('disabled', true).text('選択済み');
           $row.append($button).appendTo($results);
         });
       })
       .fail(function (xhr, status) {
-        if (status !== 'abort' && targetSearchRequest === request) showTargetMessage('検索に失敗しました。もう一度お試しください。');
+        if (status !== 'abort' && targetSearchRequest === request && targetSearchPicker === $picker.get(0)) showTargetMessage('検索に失敗しました。もう一度お試しください。', $picker);
       })
       .always(function () {
         if (targetSearchRequest === request) targetSearchRequest = null;
@@ -210,6 +234,7 @@
 
   $(function () {
     refreshRows();
+    refreshSpBreakpointLabel();
     $('.ship-modal-length-unit').each(function () { syncLengthUnit(this); });
     $('[maxlength]').each(function () { updateCounter(this); });
     $('.ship-modal-button-label').each(function () { updateButtonLabelMeta(this); });
@@ -218,13 +243,16 @@
     $(document).on('input', '.ship-modal-button-label', function () { updateButtonLabelMeta(this); });
     $(document).on('blur', '.ship-modal-button-label', function () { normalizeButtonLabelField(this); });
     $(document).on('change', '.ship-modal-button-action', function () { refreshButtonActions($(this).closest('.ship-modal-button-field')); });
-    $('#ship-modal-content_type, #ship-modal-trigger, #ship-modal-target-post-type, #ship-modal-design, #ship-modal-frequency').on('change', refreshRows);
+    $('#ship-modal-content_type, #ship-modal-trigger, #ship-modal-design, #ship-modal-frequency').on('change', refreshRows);
+    $('#ship-modal-sp_breakpoint').on('input change', refreshSpBreakpointLabel);
     $(document).on('change.shipModalLengthUnit', '.ship-modal-length-unit', function () { syncLengthUnit(this); });
     $('input[name="ship_modal_scope"]').on('change', function () {
       refreshRows();
-      if (currentScope() === 'selected') searchTargets();
+      var scope = currentScope();
+      if (scope === 'selected') searchTargets($('.ship-modal-target-picker--include'));
+      else if (scope === 'all') searchTargets($('.ship-modal-target-picker--exclude'));
     });
-    updateTargetCount();
+    $('.ship-modal-target-picker').each(function () { updateTargetCount(this); });
     refreshStatsExportLink();
     $(document)
       .off('change.shipModalStats', '.ship-modal-stats-export-form input[type="date"]')
@@ -241,30 +269,38 @@
         $form.appendTo(document.body);
         $form.get(0).submit();
       });
-    if (currentScope() === 'selected') searchTargets();
-    $('#ship-modal-target-search').on('input', function () {
+    if (currentScope() === 'selected') searchTargets($('.ship-modal-target-picker--include'));
+    else if (currentScope() === 'all') searchTargets($('.ship-modal-target-picker--exclude'));
+    $(document).on('input', '.ship-modal-target-search', function () {
+      var $picker = $(this).closest('.ship-modal-target-picker');
+      targetSearchPicker = $picker.get(0);
       window.clearTimeout(targetSearchTimer);
-      targetSearchTimer = window.setTimeout(searchTargets, 250);
+      targetSearchTimer = window.setTimeout(function () { searchTargets($picker); }, 250);
     });
-    $('#ship-modal-target-post-type').on('change', searchTargets);
+    $(document).on('change', '.ship-modal-target-post-type', function () {
+      searchTargets($(this).closest('.ship-modal-target-picker'));
+    });
     $(document).on('click', '.ship-modal-target-result .button', function () {
-      addTarget(String($(this).data('targetId')), String($(this).data('targetLabel')));
+      var $picker = $(this).closest('.ship-modal-target-picker');
+      addTarget(String($(this).data('targetId')), String($(this).data('targetLabel')), $picker);
       $(this).prop('disabled', true).text('選択済み');
     });
     $(document).on('click', '.ship-modal-target-remove', function () {
       var $chip = $(this).closest('.ship-modal-target-chip');
+      var $picker = $chip.closest('.ship-modal-target-picker');
       var removedId = String($chip.attr('data-target-id') || '');
       $chip.remove();
-      updateTargetCount();
-      $('#ship-modal-target-results .button').each(function () {
+      updateTargetCount($picker);
+      $picker.find('.ship-modal-target-results .button').each(function () {
         if (String($(this).data('targetId')) === removedId) $(this).prop('disabled', false).text('＋追加');
       });
     });
-    $('#ship-modal-target-clear').on('click', function (event) {
+    $(document).on('click', '.ship-modal-target-clear', function (event) {
       event.preventDefault();
-      $('#ship-modal-target-selected').empty();
-      updateTargetCount();
-      $('#ship-modal-target-results .button').prop('disabled', false).text('＋追加');
+      var $picker = $(this).closest('.ship-modal-target-picker');
+      $picker.find('.ship-modal-target-selected').empty();
+      updateTargetCount($picker);
+      $picker.find('.ship-modal-target-results .button').prop('disabled', false).text('＋追加');
     });
     var frame;
     function selectImage(targetId, previewId) {
