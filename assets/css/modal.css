@@ -219,6 +219,8 @@
 
 /* 右下ポップアップの画面端余白は、選択した端末幅ごとに調整する。 */
 .ship-modal--side{padding:var(--ship-modal-side-margin-pc-y,24px) var(--ship-modal-side-margin-pc-x,24px)}
+.ship-modal.ship-modal--non-blocking{pointer-events:none}
+.ship-modal--non-blocking .ship-modal__dialog{pointer-events:auto}
 .ship-modal--side .ship-modal__dialog{width:min(calc(100vw - var(--ship-modal-side-margin-pc-x,24px) - var(--ship-modal-side-margin-pc-x,24px)),var(--ship-modal-max-width,420px));max-height:calc(100dvh - var(--ship-modal-side-margin-pc-y,24px) - var(--ship-modal-side-margin-pc-y,24px))}
 .ship-modal--side .ship-modal__content{max-height:calc(100dvh - var(--ship-modal-side-margin-pc-y,24px) - var(--ship-modal-side-margin-pc-y,24px))}
 @media (min-width:768px) and (max-width:1024px){

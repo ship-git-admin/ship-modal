@@ -4,6 +4,7 @@
   var config = window.ShipModalConfig || {};
   var activeModal = null;
   var previousFocus = null;
+  var shipModalAddedScrollLock = false;
   var pendingModals = [];
   var gtagScriptRequested = false;
   var gtagScriptState = 'idle';
@@ -112,6 +113,17 @@
       else element.removeAttribute('aria-hidden');
     });
     backgroundInertState = [];
+  }
+
+  function lockBodyScroll() {
+    if (!document.body || document.body.classList.contains('ship-modal-open')) return;
+    document.body.classList.add('ship-modal-open');
+    shipModalAddedScrollLock = true;
+  }
+
+  function unlockBodyScroll() {
+    if (shipModalAddedScrollLock && document.body) document.body.classList.remove('ship-modal-open');
+    shipModalAddedScrollLock = false;
   }
 
   function storageKey(modal) {
@@ -440,6 +452,10 @@
     });
   }
 
+  function isNonBlockingSideModal(modal) {
+    return !!modal && modal.classList.contains('ship-modal--non-blocking');
+  }
+
   function openModal(modal) {
     if (!modal || modal.classList.contains('is-open') || modal.classList.contains('is-closing') || !canShow(modal)) return;
     if (activeModal === modal) return;
@@ -447,11 +463,12 @@
       if (pendingModals.indexOf(modal) === -1) pendingModals.push(modal);
       return;
     }
+    var nonBlocking = isNonBlockingSideModal(modal);
     previousFocus = document.activeElement;
     activeModal = modal;
     modal.hidden = false;
     setTriggerExpanded(modal, true);
-    document.body.classList.add('ship-modal-open');
+    if (!nonBlocking) lockBodyScroll();
     showPage(modal, 0, false);
     var content = modal.querySelector('.ship-modal__content');
     var pages = modal.querySelector('.ship-modal__pages');
@@ -460,6 +477,7 @@
     window.requestAnimationFrame(function () {
       if (activeModal !== modal || modal.hidden || modal.classList.contains('is-closing')) return;
       modal.classList.add('is-open');
+      if (nonBlocking) return;
       var close = modal.querySelector('.ship-modal__close');
       var elements = focusable(modal);
       var dialog = modal.querySelector('.ship-modal__dialog');
@@ -491,8 +509,13 @@
       if (previousFocus && previousFocus.focus && document.documentElement.contains(previousFocus)) previousFocus.focus();
       previousFocus = null;
       while (pendingModals.length && !canShow(pendingModals[0])) pendingModals.shift();
-      if (pendingModals.length) openModal(pendingModals.shift());
-      else document.body.classList.remove('ship-modal-open');
+      if (pendingModals.length) {
+        var nextModal = pendingModals.shift();
+        if (isNonBlockingSideModal(nextModal)) unlockBodyScroll();
+        openModal(nextModal);
+      } else {
+        unlockBodyScroll();
+      }
     }, 220);
   }
 
@@ -572,6 +595,7 @@
       event.preventDefault();
       closeModal(activeModal);
     }
+    if (isNonBlockingSideModal(activeModal)) return;
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
       var editingTarget = event.target && event.target.closest ? event.target.closest('input, textarea, select, [contenteditable="true"]') : null;
       if (editingTarget) return;

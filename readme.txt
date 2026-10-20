@@ -3,7 +3,7 @@ Contributors: shipinc
 Requires at least: 4.8
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.9.2
+Stable tag: 1.9.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -36,6 +36,10 @@ GA4の同意状態は `window.ShipModalConsent.setAnalyticsConsent(true)` / `fal
 3. 「モーダル」から内容と表示設定を登録します。
 
 == Changelog ==
+
+= 1.9.3 =
+* 右下配置で背景を暗くせず、背景クリックでも閉じない場合に、背後のページをスクロール・操作できるよう改善。
+* 通常のモーダルのスクロール制御とフォーカス制御は維持。
 
 = 1.9.2 =
 * 最大幅と画面端からの余白を小数点以下2桁まで指定できるよう改善。
