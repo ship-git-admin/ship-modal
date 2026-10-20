@@ -1189,14 +1189,23 @@ final class Ship_Modal
                 return isset($targetable_types[$value]) && is_singular($value);
             }
             if ('is_page_template' === $condition) {
+                global $wp_the_query;
+                if (! ($wp_the_query instanceof WP_Query) || ! $wp_the_query->is_singular()) {
+                    return false;
+                }
+                $queried_post_id = absint($wp_the_query->get_queried_object_id());
                 $targetable_types = $this->targetable_post_types();
-                if (! isset($targetable_types[get_post_type(get_queried_object_id())])) {
+                if (! $queried_post_id || ! isset($targetable_types[get_post_type($queried_post_id)])) {
                     return false;
                 }
                 if ('default' !== $value && ! isset($this->targetable_page_templates()[$value])) {
                     return false;
                 }
-                return '' !== $value && is_page_template($value);
+                $assigned_template = get_page_template_slug($queried_post_id);
+                if (! is_string($assigned_template)) {
+                    return false;
+                }
+                return 'default' === $value ? '' === $assigned_template : $value === $assigned_template;
             }
             if ('is_front_page' === $condition) {
                 return is_front_page();

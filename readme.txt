@@ -3,7 +3,7 @@ Contributors: shipinc
 Requires at least: 4.8
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.10.1
+Stable tag: 1.10.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -38,6 +38,9 @@ GA4の同意状態は `window.ShipModalConsent.setAnalyticsConsent(true)` / `fal
 3. 「モーダル」から内容と表示設定を登録します。
 
 == Changelog ==
+
+= 1.10.2 =
+* ページテンプレートによる除外判定をメインクエリのページIDで行い、テーマ側のループ状態に左右されないよう修正。
 
 = 1.10.1 =
 * 表示対象・除外対象に、個別ページ、投稿タイプ別の個別ページ、ページテンプレート、トップページ、投稿一覧、アーカイブ、検索結果、404ページなどの条件を追加。
