@@ -5,6 +5,9 @@
   var targetSearchRequest = null;
   var targetSearchTimer = null;
   var targetSearchPicker = null;
+  var targetTermSearchRequest = null;
+  var targetTermSearchTimer = null;
+  var targetTermSearchPicker = null;
 
   function currentScope() {
     return $('input[name="ship_modal_scope"]:checked').val() || 'front';
@@ -157,6 +160,25 @@
     $picker.find('.ship-modal-target-count').text(count ? count + label : '未選択');
   }
 
+  function refreshTargetAddMode(picker) {
+    var $picker = $(picker);
+    var mode = $picker.find('.ship-modal-target-add-mode').val() || 'individual';
+    $picker.find('.ship-modal-target-add-controls').hide();
+    $picker.find('.ship-modal-target-add-controls--' + mode).show();
+  }
+
+  function refreshPostTypeAddButton(picker) {
+    var $picker = $(picker);
+    var postType = String($picker.find('.ship-modal-target-rule-post-type').val() || '');
+    var key = targetRuleKey('post_type', { post_type: postType });
+    var $button = $picker.find('.ship-modal-target-rule-add-post-type');
+    if (targetRuleIsSelected(key, $picker)) {
+      $button.data('targetRuleKey', key).prop('disabled', true).text('追加済み');
+    } else {
+      $button.removeData('targetRuleKey').prop('disabled', false).text('＋追加');
+    }
+  }
+
   function refreshStatsExportLink() {
     $('.ship-modal-stats-export-link').each(function () {
       var $link = $(this);
@@ -190,6 +212,43 @@
     $('<button type="button" class="ship-modal-target-remove"></button>').attr('aria-label', removeLabel).text('×').appendTo($chip);
     $picker.find('.ship-modal-target-selected').append($chip);
     updateTargetCount($picker);
+  }
+
+  function targetRuleKey(type, values) {
+    if (type === 'post_type') return 'post_type:' + values.post_type;
+    return 'taxonomy:' + values.taxonomy + ':' + values.term_id;
+  }
+
+  function targetRuleIsSelected(key, picker) {
+    return $(picker).find('.ship-modal-target-selected .ship-modal-target-chip[data-target-rule-key]').filter(function () {
+      return String($(this).attr('data-target-rule-key')) === String(key);
+    }).length > 0;
+  }
+
+  function addTargetRule(type, values, label, picker) {
+    var $picker = $(picker);
+    var key = targetRuleKey(type, values);
+    if (!key || targetRuleIsSelected(key, $picker)) return false;
+    var index = parseInt($picker.attr('data-next-rule-index'), 10) || 0;
+    $picker.attr('data-next-rule-index', index + 1);
+    var field = $picker.attr('data-rule-field') + '[' + index + ']';
+    var $chip = $('<span class="ship-modal-target-chip"></span>').attr('data-target-rule-key', key);
+    function addRuleInput(name, value) {
+      $('<input type="hidden">').attr('name', field + '[' + name + ']').val(value).appendTo($chip);
+    }
+    addRuleInput('type', type);
+    if (type === 'post_type') {
+      addRuleInput('post_type', values.post_type);
+    } else {
+      addRuleInput('taxonomy', values.taxonomy);
+      addRuleInput('term_id', values.term_id);
+    }
+    $('<span></span>').text(label).appendTo($chip);
+    var removeLabel = $picker.hasClass('ship-modal-target-picker--exclude') ? '除外を解除' : '選択を解除';
+    $('<button type="button" class="ship-modal-target-remove"></button>').attr('aria-label', removeLabel).text('×').appendTo($chip);
+    $picker.find('.ship-modal-target-selected').append($chip);
+    updateTargetCount($picker);
+    return true;
   }
 
   function searchTargets(picker) {
@@ -241,6 +300,72 @@
       });
   }
 
+  function showTargetTermMessage(message, picker) {
+    $(picker).find('.ship-modal-target-term-results').empty().append($('<p class="description"></p>').text(message));
+  }
+
+  function searchTargetTerms(picker) {
+    var $picker = $(picker);
+    if (!$picker.length) return;
+    window.clearTimeout(targetTermSearchTimer);
+    targetTermSearchTimer = null;
+    if (targetTermSearchRequest) {
+      targetTermSearchRequest.abort();
+      targetTermSearchRequest = null;
+    }
+    targetTermSearchPicker = $picker.get(0);
+    var query = $.trim($picker.find('.ship-modal-target-term-search').val() || '');
+    var taxonomy = $picker.find('.ship-modal-target-rule-taxonomy').val() || '';
+    if (query.length < 2) {
+      showTargetTermMessage('ターム名を2文字以上入力してください。', $picker);
+      return;
+    }
+    if (!taxonomy) {
+      showTargetTermMessage('利用できるタクソノミーがありません。', $picker);
+      return;
+    }
+    if (!adminConfig.ajaxUrl || !adminConfig.targetSearchNonce) {
+      showTargetTermMessage('検索設定を読み込めませんでした。ページを再読み込みしてください。', $picker);
+      return;
+    }
+    showTargetTermMessage('タームを検索中…', $picker);
+    var request = $.post(adminConfig.ajaxUrl, {
+      action: 'ship_modal_search_target_terms',
+      nonce: adminConfig.targetSearchNonce,
+      modal_post_id: adminConfig.postId || '',
+      taxonomy: taxonomy,
+      q: query
+    });
+    targetTermSearchRequest = request;
+    request
+      .done(function (response) {
+        if (targetTermSearchRequest !== request || targetTermSearchPicker !== $picker.get(0)) return;
+        var $results = $picker.find('.ship-modal-target-term-results').empty();
+        if (!response || !response.success || !response.data || !response.data.length) {
+          showTargetTermMessage('該当するタームがありません。', $picker);
+          return;
+        }
+        response.data.forEach(function (item) {
+          var id = String(item.id);
+          var itemTaxonomy = String(item.taxonomy || taxonomy);
+          var label = String(item.label || '');
+          var key = targetRuleKey('taxonomy', { taxonomy: itemTaxonomy, term_id: id });
+          var $row = $('<div class="ship-modal-target-result ship-modal-target-term-result"></div>');
+          $('<span></span>').text(label).appendTo($row);
+          var $button = $('<button type="button" class="button button-small">＋追加</button>')
+            .data({ targetRuleType: 'taxonomy', targetRuleValues: { taxonomy: itemTaxonomy, term_id: id }, targetRuleKey: key, targetRuleLabel: label });
+          if (targetRuleIsSelected(key, $picker)) $button.prop('disabled', true).text('追加済み');
+          $row.append($button).appendTo($results);
+        });
+      })
+      .fail(function (xhr, status) {
+        if (status !== 'abort' && targetTermSearchRequest === request && targetTermSearchPicker === $picker.get(0)) showTargetTermMessage('検索に失敗しました。もう一度お試しください。', $picker);
+      })
+      .always(function () {
+        if (targetTermSearchRequest === request) targetTermSearchRequest = null;
+      });
+  }
+
   $(function () {
     refreshRows();
     refreshSpBreakpointLabel();
@@ -261,7 +386,11 @@
       if (scope === 'selected') searchTargets($('.ship-modal-target-picker--include'));
       else if (scope === 'all') searchTargets($('.ship-modal-target-picker--exclude'));
     });
-    $('.ship-modal-target-picker').each(function () { updateTargetCount(this); });
+    $('.ship-modal-target-picker').each(function () {
+      updateTargetCount(this);
+      refreshTargetAddMode(this);
+      refreshPostTypeAddButton(this);
+    });
     refreshStatsExportLink();
     $(document)
       .off('change.shipModalStats', '.ship-modal-stats-export-form input[type="date"]')
@@ -289,7 +418,42 @@
     $(document).on('change', '.ship-modal-target-post-type', function () {
       searchTargets($(this).closest('.ship-modal-target-picker'));
     });
-    $(document).on('click', '.ship-modal-target-result .button', function () {
+    $(document).on('change', '.ship-modal-target-add-mode', function () {
+      var $picker = $(this).closest('.ship-modal-target-picker');
+      refreshTargetAddMode($picker);
+      if ($(this).val() === 'individual') searchTargets($picker);
+      if ($(this).val() === 'taxonomy') searchTargetTerms($picker);
+    });
+    $(document).on('click', '.ship-modal-target-rule-add-post-type', function () {
+      var $picker = $(this).closest('.ship-modal-target-picker');
+      var $select = $picker.find('.ship-modal-target-rule-post-type');
+      var postType = String($select.val() || '');
+      var label = '投稿タイプ：' + $.trim($select.find('option:selected').text());
+      if (addTargetRule('post_type', { post_type: postType }, label, $picker)) {
+        refreshPostTypeAddButton($picker);
+      }
+    });
+    $(document).on('input', '.ship-modal-target-term-search', function () {
+      var $picker = $(this).closest('.ship-modal-target-picker');
+      targetTermSearchPicker = $picker.get(0);
+      window.clearTimeout(targetTermSearchTimer);
+      targetTermSearchTimer = window.setTimeout(function () { searchTargetTerms($picker); }, 250);
+    });
+    $(document).on('change', '.ship-modal-target-rule-taxonomy', function () {
+      var $picker = $(this).closest('.ship-modal-target-picker');
+      searchTargetTerms($picker);
+    });
+    $(document).on('change', '.ship-modal-target-rule-post-type', function () {
+      refreshPostTypeAddButton($(this).closest('.ship-modal-target-picker'));
+    });
+    $(document).on('click', '.ship-modal-target-term-result .button', function () {
+      var $button = $(this);
+      var $picker = $button.closest('.ship-modal-target-picker');
+      if (addTargetRule($button.data('targetRuleType'), $button.data('targetRuleValues'), String($button.data('targetRuleLabel') || ''), $picker)) {
+        $button.prop('disabled', true).text('追加済み');
+      }
+    });
+    $(document).on('click', '.ship-modal-target-results .button', function () {
       var $picker = $(this).closest('.ship-modal-target-picker');
       addTarget(String($(this).data('targetId')), String($(this).data('targetLabel')), $picker);
       $(this).prop('disabled', true).text('選択済み');
@@ -298,11 +462,18 @@
       var $chip = $(this).closest('.ship-modal-target-chip');
       var $picker = $chip.closest('.ship-modal-target-picker');
       var removedId = String($chip.attr('data-target-id') || '');
+      var removedRuleKey = String($chip.attr('data-target-rule-key') || '');
       $chip.remove();
       updateTargetCount($picker);
       $picker.find('.ship-modal-target-results .button').each(function () {
         if (String($(this).data('targetId')) === removedId) $(this).prop('disabled', false).text('＋追加');
       });
+      if (removedRuleKey) {
+        $picker.find('.ship-modal-target-term-result .button').each(function () {
+          if (String($(this).data('targetRuleKey')) === removedRuleKey) $(this).prop('disabled', false).text('＋追加');
+        });
+        refreshPostTypeAddButton($picker);
+      }
     });
     $(document).on('click', '.ship-modal-target-clear', function (event) {
       event.preventDefault();
@@ -310,6 +481,8 @@
       $picker.find('.ship-modal-target-selected').empty();
       updateTargetCount($picker);
       $picker.find('.ship-modal-target-results .button').prop('disabled', false).text('＋追加');
+      $picker.find('.ship-modal-target-term-result .button').prop('disabled', false).text('＋追加');
+      refreshPostTypeAddButton($picker);
     });
     var frame;
     function selectImage(targetId, previewId) {

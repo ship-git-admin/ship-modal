@@ -46,6 +46,7 @@ final class Ship_Modal
         add_action('wp_ajax_ship_modal_tracking_status', array($this, 'tracking_status'));
         add_action('wp_ajax_nopriv_ship_modal_tracking_status', array($this, 'tracking_status'));
         add_action('wp_ajax_ship_modal_search_targets', array($this, 'search_targets'));
+        add_action('wp_ajax_ship_modal_search_target_terms', array($this, 'search_target_terms'));
         add_action('admin_post_ship_modal_preview', array($this, 'preview'));
         add_action('admin_post_ship_modal_save_settings', array($this, 'save_settings'));
         add_action('admin_post_ship_modal_export_stats', array($this, 'export_stats'));
@@ -913,6 +914,208 @@ final class Ship_Modal
         return $types;
     }
 
+    private function targetable_taxonomies()
+    {
+        $taxonomies = get_object_taxonomies(array_keys($this->targetable_post_types()), 'objects');
+        foreach ($taxonomies as $taxonomy => $taxonomy_object) {
+            if (empty($taxonomy_object->public)) {
+                unset($taxonomies[$taxonomy]);
+            }
+        }
+        return $taxonomies;
+    }
+
+    private function normalize_target_rules($rules)
+    {
+        $normalized = array();
+        $rules = (array) $rules;
+        if (empty($rules)) {
+            return $normalized;
+        }
+        $targetable_types = $this->targetable_post_types();
+        $targetable_taxonomies = $this->targetable_taxonomies();
+
+        foreach ($rules as $rule) {
+            if (! is_array($rule)) {
+                continue;
+            }
+            $type = isset($rule['type']) && is_scalar($rule['type']) ? sanitize_key((string) $rule['type']) : '';
+            if ('post_type' === $type) {
+                $post_type = isset($rule['post_type']) && is_scalar($rule['post_type']) ? sanitize_key((string) $rule['post_type']) : '';
+                if (! isset($targetable_types[$post_type])) {
+                    continue;
+                }
+                $key = 'post_type:' . $post_type;
+                $normalized[$key] = array('type' => 'post_type', 'post_type' => $post_type);
+                continue;
+            }
+            if ('taxonomy' !== $type) {
+                continue;
+            }
+
+            $taxonomy = isset($rule['taxonomy']) && is_scalar($rule['taxonomy']) ? sanitize_key((string) $rule['taxonomy']) : '';
+            $term_id = isset($rule['term_id']) && is_scalar($rule['term_id']) ? absint($rule['term_id']) : 0;
+            if (! isset($targetable_taxonomies[$taxonomy]) || ! $term_id) {
+                continue;
+            }
+            $term = get_term($term_id, $taxonomy);
+            if (! $term || is_wp_error($term)) {
+                continue;
+            }
+            $key = 'taxonomy:' . $taxonomy . ':' . $term_id;
+            $normalized[$key] = array('type' => 'taxonomy', 'taxonomy' => $taxonomy, 'term_id' => $term_id);
+        }
+
+        return array_values($normalized);
+    }
+
+    private function target_term_label($term, $taxonomy_object)
+    {
+        $names = array($term->name);
+        $parent_id = (int) $term->parent;
+        $seen = array((int) $term->term_id => true);
+        while ($parent_id && count($names) < 20 && empty($seen[$parent_id])) {
+            $parent = get_term($parent_id, $term->taxonomy);
+            if (! $parent || is_wp_error($parent)) {
+                break;
+            }
+            array_unshift($names, $parent->name);
+            $seen[$parent_id] = true;
+            $parent_id = (int) $parent->parent;
+        }
+
+        return $taxonomy_object->labels->singular_name . '：' . implode(' › ', $names);
+    }
+
+    private function target_rule_matches($rule)
+    {
+        if (! is_array($rule) || ! isset($rule['type'])) {
+            return false;
+        }
+
+        if ('post_type' === $rule['type'] && isset($rule['post_type'])) {
+            $post_type = $rule['post_type'];
+            if (is_singular() && $post_type === get_post_type(get_queried_object_id())) {
+                return true;
+            }
+            return is_post_type_archive($post_type) || ('post' === $post_type && is_home());
+        }
+
+        if ('taxonomy' !== $rule['type'] || empty($rule['taxonomy']) || empty($rule['term_id'])) {
+            return false;
+        }
+
+        $taxonomy = $rule['taxonomy'];
+        $term_id = absint($rule['term_id']);
+        $term_ids = array($term_id);
+        $taxonomy_object = get_taxonomy($taxonomy);
+        if ($taxonomy_object && ! empty($taxonomy_object->hierarchical)) {
+            $children = get_term_children($term_id, $taxonomy);
+            if (! is_wp_error($children)) {
+                $term_ids = array_merge($term_ids, array_map('absint', $children));
+            }
+        }
+
+        if (is_singular()) {
+            $post_id = get_queried_object_id();
+            $post_type = get_post_type($post_id);
+            $targetable_types = $this->targetable_post_types();
+            if (isset($targetable_types[$post_type]) && has_term($term_ids, $taxonomy, $post_id)) {
+                return true;
+            }
+        }
+
+        $queried_object = get_queried_object();
+        return $queried_object instanceof WP_Term
+            && $taxonomy === $queried_object->taxonomy
+            && in_array((int) $queried_object->term_id, $term_ids, true);
+    }
+
+    private function render_target_picker($kind, $ids, $rules, $targetable_types, $targetable_taxonomies)
+    {
+        $is_exclude = 'exclude' === $kind;
+        $id_field = $is_exclude ? 'ship_modal_exclude_ids[]' : 'ship_modal_target_ids[]';
+        $rule_field = $is_exclude ? 'ship_modal_exclude_rules' : 'ship_modal_target_rules';
+        $search_label = $is_exclude ? '除外するページ・記事を検索' : '表示するページ・記事を検索';
+        $title = $is_exclude ? '除外条件を追加' : '表示条件を追加';
+        $selected_label = $is_exclude ? '除外中' : '選択中';
+        $post_type_help = $is_exclude
+            ? '選んだ投稿タイプの記事全体と一覧ページ（ある場合）を表示対象から除外します。'
+            : '選んだ投稿タイプの記事全体を表示対象にします。一覧ページがある場合は、その一覧ページも含みます。';
+        $taxonomy_help = $is_exclude
+            ? '選んだタームと子タームの一覧ページ、および該当する記事を表示対象から除外します。'
+            : '選んだタームと子タームの一覧ページ、および該当する記事を表示対象にします。';
+        $rule_index = 0;
+        $selected_posts = $ids ? get_posts(array(
+            'post__in' => $ids,
+            'post_type' => array_keys($targetable_types),
+            'post_status' => 'publish',
+            'posts_per_page' => -1,
+            'orderby' => 'post__in',
+        )) : array();
+
+        echo '<div class="ship-modal-target-picker ship-modal-target-picker--' . esc_attr($kind) . '" data-target-field="' . esc_attr($id_field) . '" data-rule-field="' . esc_attr($rule_field) . '" data-next-rule-index="' . esc_attr(count($rules)) . '">';
+        if ($is_exclude) {
+            echo '<input type="hidden" name="ship_modal_exclude_ids_present" value="1">';
+        }
+        echo '<div class="ship-modal-target-picker__heading"><strong>' . esc_html($title) . '</strong><span class="ship-modal-target-count" aria-live="polite"></span></div>';
+        echo '<label class="ship-modal-target-mode-label">追加する種類 <select class="ship-modal-target-add-mode"><option value="individual">ページ・記事</option><option value="post_type">投稿タイプ全体</option><option value="taxonomy"' . (empty($targetable_taxonomies) ? ' disabled' : '') . '>タクソノミー</option></select></label>';
+
+        echo '<div class="ship-modal-target-add-controls ship-modal-target-add-controls--individual">';
+        echo '<div class="ship-modal-target-search-row"><input type="search" class="widefat ship-modal-target-search" aria-label="' . esc_attr($search_label) . '" placeholder="ページ名・記事タイトルで検索（2文字以上）"><select class="ship-modal-target-post-type" aria-label="検索する種類"><option value="">すべての種類</option>';
+        foreach ($targetable_types as $target_type => $target_type_object) {
+            echo '<option value="' . esc_attr($target_type) . '">' . esc_html($target_type_object->labels->name) . '</option>';
+        }
+        echo '</select></div><div class="ship-modal-target-results"><p class="description">検索結果から追加できます。</p></div></div>';
+
+        echo '<div class="ship-modal-target-add-controls ship-modal-target-add-controls--post-type"><label>投稿タイプ <select class="ship-modal-target-rule-post-type">';
+        foreach ($targetable_types as $target_type => $target_type_object) {
+            echo '<option value="' . esc_attr($target_type) . '">' . esc_html($target_type_object->labels->name) . '</option>';
+        }
+        echo '</select></label> <button type="button" class="button ship-modal-target-rule-add-post-type">＋追加</button><p class="description">' . esc_html($post_type_help) . '</p></div>';
+
+        echo '<div class="ship-modal-target-add-controls ship-modal-target-add-controls--taxonomy"><label>タクソノミー <select class="ship-modal-target-rule-taxonomy">';
+        if (empty($targetable_taxonomies)) {
+            echo '<option value="" disabled selected>利用できるタクソノミーがありません</option>';
+        } else {
+            foreach ($targetable_taxonomies as $taxonomy => $taxonomy_object) {
+                echo '<option value="' . esc_attr($taxonomy) . '">' . esc_html($taxonomy_object->labels->name) . '</option>';
+            }
+        }
+        echo '</select></label><label>ターム名 <input type="search" class="widefat ship-modal-target-term-search" placeholder="ターム名で検索（2文字以上）"></label><div class="ship-modal-target-term-results"><p class="description">ターム名を2文字以上入力してください。</p></div><p class="description">' . esc_html($taxonomy_help) . '</p></div>';
+
+        echo '<div class="ship-modal-target-picker__selected-heading"><strong>' . esc_html($selected_label) . '</strong><button type="button" class="button-link ship-modal-target-clear">すべて解除</button></div><div class="ship-modal-target-selected">';
+        foreach ($selected_posts as $selected_post) {
+            $selected_type = get_post_type($selected_post);
+            $selected_type_label = isset($targetable_types[$selected_type]) ? $targetable_types[$selected_type]->labels->singular_name : $selected_type;
+            echo '<span class="ship-modal-target-chip" data-target-id="' . esc_attr($selected_post->ID) . '"><input type="hidden" name="' . esc_attr($id_field) . '" value="' . esc_attr($selected_post->ID) . '"><span>' . esc_html('[' . $selected_type_label . '] ' . get_the_title($selected_post)) . '</span><button type="button" class="ship-modal-target-remove" aria-label="' . esc_attr($is_exclude ? '除外を解除' : '選択を解除') . '">×</button></span>';
+        }
+        foreach ($rules as $rule) {
+            if ('post_type' === $rule['type']) {
+                $post_type = $rule['post_type'];
+                $rule_key = 'post_type:' . $post_type;
+                $rule_label = '投稿タイプ：' . $targetable_types[$post_type]->labels->name;
+                echo '<span class="ship-modal-target-chip" data-target-rule-key="' . esc_attr($rule_key) . '"><input type="hidden" name="' . esc_attr($rule_field) . '[' . esc_attr($rule_index) . '][type]" value="post_type"><input type="hidden" name="' . esc_attr($rule_field) . '[' . esc_attr($rule_index) . '][post_type]" value="' . esc_attr($post_type) . '"><span>' . esc_html($rule_label) . '</span><button type="button" class="ship-modal-target-remove" aria-label="' . esc_attr($is_exclude ? '除外を解除' : '選択を解除') . '">×</button></span>';
+            } else {
+                $taxonomy = $rule['taxonomy'];
+                $term_id = absint($rule['term_id']);
+                $term = get_term($term_id, $taxonomy);
+                if (! $term || is_wp_error($term) || ! isset($targetable_taxonomies[$taxonomy])) {
+                    continue;
+                }
+                $rule_key = 'taxonomy:' . $taxonomy . ':' . $term_id;
+                $rule_label = $this->target_term_label($term, $targetable_taxonomies[$taxonomy]);
+                echo '<span class="ship-modal-target-chip" data-target-rule-key="' . esc_attr($rule_key) . '"><input type="hidden" name="' . esc_attr($rule_field) . '[' . esc_attr($rule_index) . '][type]" value="taxonomy"><input type="hidden" name="' . esc_attr($rule_field) . '[' . esc_attr($rule_index) . '][taxonomy]" value="' . esc_attr($taxonomy) . '"><input type="hidden" name="' . esc_attr($rule_field) . '[' . esc_attr($rule_index) . '][term_id]" value="' . esc_attr($term_id) . '"><span>' . esc_html($rule_label) . '</span><button type="button" class="ship-modal-target-remove" aria-label="' . esc_attr($is_exclude ? '除外を解除' : '選択を解除') . '">×</button></span>';
+            }
+            $rule_index++;
+        }
+        echo '</div><p class="description">';
+        echo $is_exclude
+            ? '「全ページ」を選んだ場合でも、ここに追加したページ・投稿タイプ・タクソノミーには表示しません。'
+            : '「指定ページのみ」で選ぶと、ここに追加したページ・投稿タイプ・タクソノミーだけに表示します。';
+        echo '</p></div>';
+    }
+
     public function search_targets()
     {
         check_ajax_referer('ship_modal_target_search', 'nonce');
@@ -945,6 +1148,51 @@ final class Ship_Modal
                 'id' => (int) $target_post->ID,
                 'title' => get_the_title($target_post),
                 'type' => isset($types[$type]) ? $types[$type]->labels->singular_name : $type,
+            );
+        }
+        wp_send_json_success($results);
+    }
+
+    public function search_target_terms()
+    {
+        check_ajax_referer('ship_modal_target_search', 'nonce');
+        $modal_post_id = isset($_POST['modal_post_id']) ? absint($_POST['modal_post_id']) : 0;
+        if (! $this->can_manage_modal() || ($modal_post_id && ! current_user_can('edit_post', $modal_post_id))) {
+            wp_send_json_error(array('message' => '権限がありません。'), 403);
+        }
+
+        $taxonomy = isset($_POST['taxonomy']) && is_scalar($_POST['taxonomy']) ? sanitize_key(wp_unslash($_POST['taxonomy'])) : '';
+        $taxonomies = $this->targetable_taxonomies();
+        if (! isset($taxonomies[$taxonomy])) {
+            wp_send_json_error(array('message' => 'タクソノミーを確認できません。'), 400);
+        }
+
+        $search = isset($_POST['q']) && is_scalar($_POST['q']) ? sanitize_text_field(wp_unslash($_POST['q'])) : '';
+        $search_length = function_exists('mb_strlen')
+            ? mb_strlen($search, 'UTF-8')
+            : preg_match_all('/./us', $search, $unused_matches);
+        if ($search_length < 2) {
+            wp_send_json_success(array());
+        }
+
+        $terms = get_terms(array(
+            'taxonomy' => $taxonomy,
+            'hide_empty' => false,
+            'number' => 30,
+            'search' => $search,
+            'orderby' => 'name',
+            'order' => 'ASC',
+        ));
+        if (is_wp_error($terms)) {
+            wp_send_json_error(array('message' => 'タームを検索できませんでした。'), 500);
+        }
+
+        $results = array();
+        foreach ($terms as $term) {
+            $results[] = array(
+                'id' => (int) $term->term_id,
+                'taxonomy' => $taxonomy,
+                'label' => $this->target_term_label($term, $taxonomies[$taxonomy]),
             );
         }
         wp_send_json_success($results);
@@ -1319,21 +1567,10 @@ final class Ship_Modal
         $button_label_limits = $this->button_label_limits();
         $target_ids = array_values(array_filter(array_map('absint', (array) $this->meta($post->ID, 'target_ids', array()))));
         $exclude_ids = array_values(array_filter(array_map('absint', (array) $this->meta($post->ID, 'exclude_ids', array()))));
+        $target_rules = $this->normalize_target_rules($this->meta($post->ID, 'target_rules', array()));
+        $exclude_rules = $this->normalize_target_rules($this->meta($post->ID, 'exclude_rules', array()));
         $targetable_types = $this->targetable_post_types();
-        $selected_posts = $target_ids ? get_posts(array(
-            'post__in' => $target_ids,
-            'post_type' => array_keys($targetable_types),
-            'post_status' => 'publish',
-            'posts_per_page' => -1,
-            'orderby' => 'post__in',
-        )) : array();
-        $excluded_posts = $exclude_ids ? get_posts(array(
-            'post__in' => $exclude_ids,
-            'post_type' => array_keys($targetable_types),
-            'post_status' => 'publish',
-            'posts_per_page' => -1,
-            'orderby' => 'post__in',
-        )) : array();
+        $targetable_taxonomies = $this->targetable_taxonomies();
         ?>
         <table class="form-table ship-modal-form-table">
             <tr><th>表示対象</th><td>
@@ -1344,31 +1581,8 @@ final class Ship_Modal
                     <?php endforeach; ?>
                 </div>
                 <p class="description ship-modal-scope-warning">新規モーダルの初期値は「トップページのみ」です。「全ページ（注意）」はサイト全体に表示されるため、必要な場合だけ選択してください。</p>
-                <div class="ship-modal-target-picker ship-modal-target-picker--include" data-target-field="ship_modal_target_ids[]">
-                    <div class="ship-modal-target-picker__heading"><strong>指定ページを追加</strong><span class="ship-modal-target-count" aria-live="polite"></span></div>
-                    <div class="ship-modal-target-search-row"><input type="search" class="widefat ship-modal-target-search" aria-label="表示対象ページを検索" placeholder="ページ名・記事タイトルで検索（2文字以上）"><select class="ship-modal-target-post-type" aria-label="表示対象の種類"><option value="">すべての種類</option><?php foreach ($targetable_types as $target_type => $target_type_object) : ?><option value="<?php echo esc_attr($target_type); ?>"><?php echo esc_html($target_type_object->labels->name); ?></option><?php endforeach; ?></select></div>
-                    <div class="ship-modal-target-results"><p class="description">検索結果から表示対象を追加できます。</p></div>
-                    <div class="ship-modal-target-picker__selected-heading"><strong>選択中</strong><button type="button" class="button-link ship-modal-target-clear">すべて解除</button></div>
-                    <div class="ship-modal-target-selected">
-                        <?php foreach ($selected_posts as $selected_post) : $selected_type = get_post_type($selected_post); $selected_type_label = isset($targetable_types[$selected_type]) ? $targetable_types[$selected_type]->labels->singular_name : $selected_type; ?>
-                            <span class="ship-modal-target-chip" data-target-id="<?php echo esc_attr($selected_post->ID); ?>"><input type="hidden" name="ship_modal_target_ids[]" value="<?php echo esc_attr($selected_post->ID); ?>"><span><?php echo esc_html('[' . $selected_type_label . '] ' . get_the_title($selected_post)); ?></span><button type="button" class="ship-modal-target-remove" aria-label="選択を解除">×</button></span>
-                        <?php endforeach; ?>
-                    </div>
-                    <p class="description">公開中のページ・記事だけが検索対象です。指定ページのみを選んだ場合、ここで選択したページにだけ表示されます。</p>
-                </div>
-                <div class="ship-modal-target-picker ship-modal-target-picker--exclude" data-target-field="ship_modal_exclude_ids[]">
-                    <input type="hidden" name="ship_modal_exclude_ids_present" value="1">
-                    <div class="ship-modal-target-picker__heading"><strong>除外するページを追加</strong><span class="ship-modal-target-count" aria-live="polite"></span></div>
-                    <div class="ship-modal-target-search-row"><input type="search" class="widefat ship-modal-target-search" aria-label="除外するページを検索" placeholder="ページ名・記事タイトルで検索（2文字以上）"><select class="ship-modal-target-post-type" aria-label="除外するページの種類"><option value="">すべての種類</option><?php foreach ($targetable_types as $target_type => $target_type_object) : ?><option value="<?php echo esc_attr($target_type); ?>"><?php echo esc_html($target_type_object->labels->name); ?></option><?php endforeach; ?></select></div>
-                    <div class="ship-modal-target-results"><p class="description">検索結果から除外するページを追加できます。</p></div>
-                    <div class="ship-modal-target-picker__selected-heading"><strong>除外中</strong><button type="button" class="button-link ship-modal-target-clear">すべて解除</button></div>
-                    <div class="ship-modal-target-selected">
-                        <?php foreach ($excluded_posts as $excluded_post) : $excluded_type = get_post_type($excluded_post); $excluded_type_label = isset($targetable_types[$excluded_type]) ? $targetable_types[$excluded_type]->labels->singular_name : $excluded_type; ?>
-                            <span class="ship-modal-target-chip" data-target-id="<?php echo esc_attr($excluded_post->ID); ?>"><input type="hidden" name="ship_modal_exclude_ids[]" value="<?php echo esc_attr($excluded_post->ID); ?>"><span><?php echo esc_html('[' . $excluded_type_label . '] ' . get_the_title($excluded_post)); ?></span><button type="button" class="ship-modal-target-remove" aria-label="除外を解除">×</button></span>
-                        <?php endforeach; ?>
-                    </div>
-                    <p class="description">「全ページ」を選んだ場合でも、ここで指定した公開中のページ・記事には表示しません。</p>
-                </div>
+                <?php $this->render_target_picker('include', $target_ids, $target_rules, $targetable_types, $targetable_taxonomies); ?>
+                <?php $this->render_target_picker('exclude', $exclude_ids, $exclude_rules, $targetable_types, $targetable_taxonomies); ?>
             </td></tr>
             <tr><th><label for="ship-modal-trigger">起動方法</label></th><td>
                 <?php $this->select('trigger', $trigger, $trigger_options); ?>
@@ -1590,6 +1804,8 @@ final class Ship_Modal
             : $this->meta($post_id, 'scope', 'front');
         $raw_target_ids = isset($_POST['ship_modal_target_ids']) && is_array($_POST['ship_modal_target_ids']) ? $_POST['ship_modal_target_ids'] : array();
         $raw_exclude_ids = isset($_POST['ship_modal_exclude_ids']) && is_array($_POST['ship_modal_exclude_ids']) ? $_POST['ship_modal_exclude_ids'] : array();
+        $raw_target_rules = isset($_POST['ship_modal_target_rules']) && is_array($_POST['ship_modal_target_rules']) ? wp_unslash($_POST['ship_modal_target_rules']) : array();
+        $raw_exclude_rules = isset($_POST['ship_modal_exclude_rules']) && is_array($_POST['ship_modal_exclude_rules']) ? wp_unslash($_POST['ship_modal_exclude_rules']) : array();
         if ('hybrid' === $type) {
             // 必須・文字数による保存ブロックは行わない。
         }
@@ -1763,6 +1979,12 @@ final class Ship_Modal
                 }
             }
             update_post_meta($post_id, '_ship_modal_exclude_ids', $exclude_ids);
+        }
+        if ('selected' === $scope) {
+            update_post_meta($post_id, '_ship_modal_target_rules', $this->normalize_target_rules($raw_target_rules));
+        }
+        if ('all' === $scope) {
+            update_post_meta($post_id, '_ship_modal_exclude_rules', $this->normalize_target_rules($raw_exclude_rules));
         }
         $design_values = array('center', 'bottom', 'side');
         if ($this->is_fullscreen_enabled()) {
@@ -2069,12 +2291,28 @@ final class Ship_Modal
         }
         if ('selected' === $scope) {
             $target_ids = array_values(array_filter(array_map('absint', (array) $this->meta($post_id, 'target_ids', array()))));
-            return is_singular() && in_array((int) get_queried_object_id(), $target_ids, true);
+            $matches = is_singular() && in_array((int) get_queried_object_id(), $target_ids, true);
+            if (! $matches) {
+                $target_rules = $this->normalize_target_rules($this->meta($post_id, 'target_rules', array()));
+                foreach ($target_rules as $rule) {
+                    if ($this->target_rule_matches($rule)) {
+                        $matches = true;
+                        break;
+                    }
+                }
+            }
+            return $matches;
         }
-        if ('all' === $scope && is_singular()) {
+        if ('all' === $scope) {
             $exclude_ids = array_values(array_filter(array_map('absint', (array) $this->meta($post_id, 'exclude_ids', array()))));
-            if (in_array((int) get_queried_object_id(), $exclude_ids, true)) {
+            if (is_singular() && in_array((int) get_queried_object_id(), $exclude_ids, true)) {
                 return false;
+            }
+            $exclude_rules = $this->normalize_target_rules($this->meta($post_id, 'exclude_rules', array()));
+            foreach ($exclude_rules as $rule) {
+                if ($this->target_rule_matches($rule)) {
+                    return false;
+                }
             }
         }
         return true;
