@@ -123,11 +123,16 @@
     if (!isWithinSchedule(modal)) return false;
     var frequency = modal.dataset.frequency || 'session';
     if (frequency === 'always') return true;
+    if (frequency === 'closed_days' && Math.max(0, parseInt(modal.dataset.hideDays || '0', 10) || 0) === 0) return true;
     var store = frequency === 'session' ? window.sessionStorage : window.localStorage;
     try {
       var value = store.getItem(storageKey(modal));
       if (!value) return true;
       if (frequency === 'day') return value !== localDateKey();
+      if (frequency === 'closed_days') {
+        var expiresAt = parseInt(value, 10);
+        return !isFinite(expiresAt) || expiresAt <= Date.now();
+      }
       return false;
     } catch (e) {
       return true;
@@ -137,12 +142,22 @@
   function markShown(modal) {
     if (modal && modal.dataset.preview === '1') return;
     var frequency = modal.dataset.frequency || 'session';
-    if (frequency === 'always') return;
+    if (frequency === 'always' || frequency === 'closed_days') return;
     var store = frequency === 'session' ? window.sessionStorage : window.localStorage;
     try {
       store.setItem(storageKey(modal), frequency === 'day' ? localDateKey() : '1');
     } catch (e) { /* storage disabled */ }
     if (modal.dataset.trigger === 'manual' && !canShow(modal)) setTriggerVisibility(modal, false);
+  }
+
+  function markClosed(modal) {
+    if (!modal || modal.dataset.preview === '1' || modal.dataset.frequency !== 'closed_days') return;
+    var days = Math.max(0, parseInt(modal.dataset.hideDays || '0', 10) || 0);
+    if (!days) return;
+    try {
+      window.localStorage.setItem(storageKey(modal), String(Date.now() + days * 24 * 60 * 60 * 1000));
+      if (modal.dataset.trigger === 'manual') setTriggerVisibility(modal, false);
+    } catch (e) { /* storage disabled */ }
   }
 
   function randomEventId() {
@@ -463,7 +478,10 @@
     modal.classList.add('is-closing');
     modal.classList.remove('is-open');
     setTriggerExpanded(modal, false);
-    if (trackClose !== false) track(modal, 'close');
+    if (trackClose !== false) {
+      markClosed(modal);
+      track(modal, 'close');
+    }
     window.setTimeout(function () {
       modal.hidden = true;
       modal.classList.remove('is-open');

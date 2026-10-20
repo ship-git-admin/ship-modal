@@ -25,6 +25,8 @@
     $('.ship-modal-buttons-row').toggle(type === 'hybrid' || type === 'text');
     $('.ship-modal-pages-row').toggle(type === 'pager');
     $('.ship-modal-target-picker').toggle(currentScope() === 'selected');
+    $('.ship-modal-side-position-row').toggle($('#ship-modal-design').val() === 'side');
+    $('.ship-modal-hide-days-row').toggle($('#ship-modal-frequency').val() === 'closed_days');
     $('#ship-modal-body').removeAttr('maxlength');
     var trigger = $('#ship-modal-trigger').val();
     refreshTriggerHelp(trigger);
@@ -203,7 +205,7 @@
     $(document).on('input', '.ship-modal-button-label', function () { updateButtonLabelMeta(this); });
     $(document).on('blur', '.ship-modal-button-label', function () { normalizeButtonLabelField(this); });
     $(document).on('change', '.ship-modal-button-action', function () { refreshButtonActions($(this).closest('.ship-modal-button-field')); });
-    $('#ship-modal-content_type, #ship-modal-trigger, #ship-modal-target-post-type').on('change', refreshRows);
+    $('#ship-modal-content_type, #ship-modal-trigger, #ship-modal-target-post-type, #ship-modal-design, #ship-modal-frequency').on('change', refreshRows);
     $('input[name="ship_modal_scope"]').on('change', function () {
       refreshRows();
       if (currentScope() === 'selected') searchTargets();

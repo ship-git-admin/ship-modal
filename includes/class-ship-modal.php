@@ -1068,6 +1068,17 @@ final class Ship_Modal
         $border_radius = min(48, max(0, (int) $this->meta($post->ID, 'border_radius', 0)));
         $padding = min(64, max(0, (int) $this->meta($post->ID, 'padding', 20)));
         $max_width = min(1200, max(280, (int) $this->meta($post->ID, 'max_width', 620)));
+        $position_margin_defaults = array(
+            'pc' => array('x' => 24, 'y' => 24),
+            'tb' => array('x' => 24, 'y' => 24),
+            'sp' => array('x' => 12, 'y' => 12),
+        );
+        $position_margins = array();
+        foreach ($position_margin_defaults as $device => $axes) {
+            foreach ($axes as $axis => $default) {
+                $position_margins[$device][$axis] = min(200, max(0, (int) $this->meta($post->ID, 'margin_' . $device . '_' . $axis, $default)));
+            }
+        }
         $preview_url = $this->admin_action_url(
             'ship_modal_preview',
             $post->ID,
@@ -1141,7 +1152,25 @@ final class Ship_Modal
             <tr class="ship-modal-buttons-row"><th>ボタン</th><td><p class="description">任意・最大3個。1行あたりの文字数と行数に上限があります。</p><?php $this->render_button_fields($buttons, 3, 'ship_modal_buttons'); ?></td></tr>
             <tr class="ship-modal-pages-row"><th>ページ</th><td><div id="ship-modal-pages"><?php foreach ($pages as $index => $page) { $this->render_page_row($index, is_array($page) ? $page : array()); } ?></div><p><button type="button" class="button" id="ship-modal-add-page">＋ ページを追加</button></p><p class="description">各ページに画像・見出し・本文・ボタンを個別に設定できます。画像だけのページも作成できます。</p></td></tr>
             <?php endif; ?>
-            <tr><th><label for="ship-modal-design">表示レイアウト</label></th><td><?php $this->select('design', $design, $design_options); ?><p class="description">モーダル全体の表示位置・形状を選択します。内容の形式は上の「フレーム」で設定します。</p></td></tr>
+            <tr><th><label for="ship-modal-design">表示レイアウト</label></th><td><?php $this->select('design', $design, $design_options); ?><p class="description">モーダル全体の表示位置・形状を選択します。</p></td></tr>
+            <tr class="ship-modal-side-position-row"><th>画面端からの余白</th><td>
+                <details class="ship-modal-position-settings">
+                    <summary>端末ごとに調整（任意）</summary>
+                    <p class="description">右下からの距離を調整します。初期値は現在の表示位置と同じです。</p>
+                    <table class="widefat striped ship-modal-position-table">
+                        <thead><tr><th scope="col">端末</th><th scope="col">X軸（右端）</th><th scope="col">Y軸（下端）</th></tr></thead>
+                        <tbody>
+                            <?php foreach (array('pc' => 'PC（1025px以上）', 'tb' => 'TB（768〜1024px）', 'sp' => 'SP（767px以下）') as $device => $device_label) : ?>
+                                <tr><th scope="row"><?php echo esc_html($device_label); ?></th>
+                                    <?php foreach (array('x' => 'x', 'y' => 'y') as $axis => $axis_label) : ?>
+                                        <td><label class="screen-reader-text" for="ship-modal-margin-<?php echo esc_attr($device . '-' . $axis); ?>"><?php echo esc_html($device_label . ' ' . strtoupper($axis_label) . '軸の余白'); ?></label><input type="number" min="0" max="200" step="1" class="small-text" name="ship_modal_margin_<?php echo esc_attr($device . '_' . $axis); ?>" id="ship-modal-margin-<?php echo esc_attr($device . '-' . $axis); ?>" value="<?php echo esc_attr($position_margins[$device][$axis]); ?>"> px</td>
+                                    <?php endforeach; ?>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </details>
+            </td></tr>
             <?php if (! $image_only_mode) : ?>
             <tr><th><label for="ship-modal-border_radius">角丸（border-radius）</label></th><td><input type="number" min="0" max="48" step="1" class="small-text" name="ship_modal_border_radius" id="ship-modal-border_radius" value="<?php echo esc_attr($border_radius); ?>"> px <p class="description">0〜48px。0なら角丸なし。</p></td></tr>
             <tr><th><label for="ship-modal-padding">内側の余白（padding）</label></th><td><input type="number" min="0" max="64" step="1" class="small-text" name="ship_modal_padding" id="ship-modal-padding" value="<?php echo esc_attr($padding); ?>"> px <p class="description">0〜64px。画像のみフレームは画像をコンテナいっぱいに表示します。</p></td></tr>
@@ -1200,6 +1229,7 @@ final class Ship_Modal
         $delay = max(0, (int) $this->meta($post->ID, 'delay', 2));
         $scroll_threshold = min(95, max(10, (int) $this->meta($post->ID, 'scroll_threshold', 50)));
         $frequency = $this->meta($post->ID, 'frequency', 'session');
+        $hide_days = min(365, max(0, (int) $this->meta($post->ID, 'hide_days', 0)));
         $start = $this->meta($post->ID, 'start_at');
         $end = $this->meta($post->ID, 'end_at');
         $form_state_key = 'ship_modal_form_' . get_current_user_id() . '_' . $post->ID;
@@ -1276,7 +1306,8 @@ final class Ship_Modal
             <tr class="ship-modal-scroll-row"><th><label for="ship-modal-scroll_threshold">スクロール到達率</label></th><td><input type="number" min="10" max="95" step="5" class="small-text" name="ship_modal_scroll_threshold" id="ship-modal-scroll_threshold" value="<?php echo esc_attr($scroll_threshold); ?>"> ％<p class="description">ページ全体の指定割合までスクロールすると表示します。</p></td></tr>
             <tr class="ship-modal-trigger-text-row"><th><label for="ship-modal-trigger_text">ボタン文言</label></th><td><div class="ship-modal-button-label-wrap"><input type="text" class="widefat ship-modal-button-label" name="ship_modal_trigger_text" id="ship-modal-trigger_text" value="<?php echo esc_attr($trigger_text); ?>" data-max-lines="<?php echo esc_attr($button_label_limits['lines']); ?>" data-max-chars-per-line="<?php echo esc_attr($button_label_limits['chars_per_line']); ?>"><span class="ship-modal-button-label-meta" aria-live="polite"></span></div><p class="description">1行<?php echo esc_html($button_label_limits['chars_per_line']); ?>文字・最大<?php echo esc_html($button_label_limits['lines']); ?>行まで。改行は&lt;br&gt;を入力してください。超過分は保存時に自動調整されます。</p></td></tr>
             <tr class="ship-modal-trigger-style-row"><th>ボタンデザイン</th><td><label>背景色 <input type="color" name="ship_modal_trigger_bg_color" value="<?php echo esc_attr($trigger_bg_color); ?>"></label> <label>文字色 <input type="color" name="ship_modal_trigger_text_color" value="<?php echo esc_attr($trigger_text_color); ?>"></label><br><label for="ship-modal-trigger_position">配置 </label><?php $this->select('trigger_position', $trigger_position, array('left' => '左下', 'center' => '中央下', 'right' => '右下')); ?><p class="description">手動表示ボタンの背景色・文字色・画面下部の配置を設定します。</p></td></tr>
-            <tr><th><label for="ship-modal-frequency">表示頻度</label></th><td><?php $this->select('frequency', $frequency, array('always' => '毎回', 'session' => 'このタブで1回', 'day' => '端末の現地日付で1日1回', 'once' => 'このブラウザで1回')); ?></td></tr>
+            <tr><th><label for="ship-modal-frequency">表示頻度</label></th><td><?php $this->select('frequency', $frequency, array('always' => '毎回', 'session' => 'このタブで1回', 'day' => '端末の現地日付で1日1回', 'once' => 'このブラウザで1回', 'closed_days' => '閉じた後、指定日数は表示しない')); ?></td></tr>
+            <tr class="ship-modal-hide-days-row"><th><label for="ship-modal-hide-days">再表示までの日数</label></th><td><input type="number" min="0" max="365" step="1" class="small-text" name="ship_modal_hide_days" id="ship-modal-hide-days" value="<?php echo esc_attr($hide_days); ?>"> 日<p class="description">閉じた時点から数えます。0なら毎回表示します。</p></td></tr>
             <tr><th><label for="ship-modal-start_at">開始日時</label></th><td><input type="datetime-local" class="widefat" name="ship_modal_start_at" id="ship-modal-start_at" value="<?php echo esc_attr($start); ?>"><p class="description">空欄ならすぐ表示</p></td></tr>
             <tr><th><label for="ship-modal-end_at">終了日時</label></th><td><input type="datetime-local" class="widefat" name="ship_modal_end_at" id="ship-modal-end_at" value="<?php echo esc_attr($end); ?>"><p class="description">空欄なら期限なし</p></td></tr>
             <tr><th>テーマカラー</th><td>
@@ -1593,6 +1624,19 @@ final class Ship_Modal
         update_post_meta($post_id, '_ship_modal_border_radius', $border_radius);
         update_post_meta($post_id, '_ship_modal_padding', $padding);
         update_post_meta($post_id, '_ship_modal_max_width', $max_width);
+        foreach (array('pc' => array('x' => 24, 'y' => 24), 'tb' => array('x' => 24, 'y' => 24), 'sp' => array('x' => 12, 'y' => 12)) as $device => $axes) {
+            foreach ($axes as $axis => $default) {
+                $meta_key = 'margin_' . $device . '_' . $axis;
+                $value = isset($_POST['ship_modal_' . $meta_key])
+                    ? min(200, max(0, absint(wp_unslash($_POST['ship_modal_' . $meta_key]))))
+                    : min(200, max(0, (int) $this->meta($post_id, $meta_key, $default)));
+                update_post_meta($post_id, '_ship_modal_' . $meta_key, $value);
+            }
+        }
+        $hide_days = isset($_POST['ship_modal_hide_days'])
+            ? min(365, max(0, absint(wp_unslash($_POST['ship_modal_hide_days']))))
+            : min(365, max(0, (int) $this->meta($post_id, 'hide_days', 0)));
+        update_post_meta($post_id, '_ship_modal_hide_days', $hide_days);
         if (isset($_POST['ship_modal_target_ids']) || 'selected' === $scope) {
             $target_ids = array();
             $targetable_types = $this->targetable_post_types();
@@ -1627,7 +1671,7 @@ final class Ship_Modal
             'scope' => $scope_values,
             'trigger' => $trigger_values,
             'trigger_position' => array('left', 'center', 'right'),
-            'frequency' => array('always', 'session', 'day', 'once'),
+            'frequency' => array('always', 'session', 'day', 'once', 'closed_days'),
         );
         foreach ($allowed as $field => $values) {
             if ($image_only_mode && 'image_position' === $field) {
@@ -2272,6 +2316,7 @@ final class Ship_Modal
         $design = $this->meta($post_id, 'design', 'center');
         $trigger = $this->meta($post_id, 'trigger', 'auto');
         $frequency = $this->meta($post_id, 'frequency', 'session');
+        $hide_days = min(365, max(0, (int) $this->meta($post_id, 'hide_days', 0)));
         $delay = max(0, (int) $this->meta($post_id, 'delay', 2));
         if ($preview) {
             $trigger = 'auto';
@@ -2299,8 +2344,17 @@ final class Ship_Modal
         $border_radius = min(48, max(0, (int) $this->meta($post_id, 'border_radius', 0)));
         $padding = min(64, max(0, (int) $this->meta($post_id, 'padding', 20)));
         $max_width = min(1200, max(280, (int) $this->meta($post_id, 'max_width', 620)));
+        $position_margins = array();
+        foreach (array('pc' => array('x' => 24, 'y' => 24), 'tb' => array('x' => 24, 'y' => 24), 'sp' => array('x' => 12, 'y' => 12)) as $device => $axes) {
+            foreach ($axes as $axis => $default) {
+                $position_margins[$device][$axis] = min(200, max(0, (int) $this->meta($post_id, 'margin_' . $device . '_' . $axis, $default)));
+            }
+        }
         $theme_colors = $this->theme_colors($post_id);
         $modal_style = '--ship-modal-radius:' . $border_radius . 'px;--ship-modal-padding:' . $padding . 'px;--ship-modal-max-width:' . $max_width . 'px;'
+            . '--ship-modal-side-margin-pc-x:' . $position_margins['pc']['x'] . 'px;--ship-modal-side-margin-pc-y:' . $position_margins['pc']['y'] . 'px;'
+            . '--ship-modal-side-margin-tb-x:' . $position_margins['tb']['x'] . 'px;--ship-modal-side-margin-tb-y:' . $position_margins['tb']['y'] . 'px;'
+            . '--ship-modal-side-margin-sp-x:' . $position_margins['sp']['x'] . 'px;--ship-modal-side-margin-sp-y:' . $position_margins['sp']['y'] . 'px;'
             . '--ship-modal-surface:' . $theme_colors['surface'] . ';--ship-modal-accent:' . $theme_colors['accent'] . ';'
             . '--ship-modal-text:' . $theme_colors['text'] . ';--ship-modal-border:#e2e8f0;'
             . '--ship-modal-secondary:#f1f5f9;'
@@ -2385,7 +2439,7 @@ final class Ship_Modal
         }
         ?>
         <?php if ($custom_css !== '') : ?><style id="ship-modal-custom-css-<?php echo absint($post_id); ?>"><?php echo $custom_css; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?></style><?php endif; ?>
-        <div id="<?php echo esc_attr($modal_id); ?>" class="ship-modal ship-modal--<?php echo esc_attr($design); ?> ship-modal--id-<?php echo absint($post_id); ?>" style="<?php echo esc_attr($modal_style); ?>" data-post-id="<?php echo absint($post_id); ?>" data-event-token="<?php echo esc_attr($this->event_token($post_id)); ?>" data-modal-title="<?php echo esc_attr($title); ?>" data-content-type="<?php echo esc_attr($type); ?>" data-design="<?php echo esc_attr($design); ?>" data-trigger="<?php echo esc_attr($trigger); ?>" data-frequency="<?php echo esc_attr($frequency); ?>" data-delay="<?php echo esc_attr($delay); ?>" data-scroll-threshold="<?php echo esc_attr($scroll_threshold); ?>" data-schedule-start="<?php echo esc_attr($schedule_start ? $schedule_start * 1000 : 0); ?>" data-schedule-end="<?php echo esc_attr($schedule_end ? $schedule_end * 1000 : 0); ?>" data-auto-open="<?php echo 'auto' === $trigger ? '1' : '0'; ?>" data-close-overlay="<?php echo $close_overlay ? '1' : '0'; ?>" data-preview="<?php echo $preview ? '1' : '0'; ?>" role="dialog" aria-modal="true" <?php if ($show_modal_title_heading && $title !== '') : ?>aria-labelledby="<?php echo esc_attr($modal_id); ?>-title"<?php else : ?>aria-label="<?php echo esc_attr($title !== '' ? $title : 'モーダル'); ?>"<?php endif; ?> hidden>
+        <div id="<?php echo esc_attr($modal_id); ?>" class="ship-modal ship-modal--<?php echo esc_attr($design); ?> ship-modal--id-<?php echo absint($post_id); ?>" style="<?php echo esc_attr($modal_style); ?>" data-post-id="<?php echo absint($post_id); ?>" data-event-token="<?php echo esc_attr($this->event_token($post_id)); ?>" data-modal-title="<?php echo esc_attr($title); ?>" data-content-type="<?php echo esc_attr($type); ?>" data-design="<?php echo esc_attr($design); ?>" data-trigger="<?php echo esc_attr($trigger); ?>" data-frequency="<?php echo esc_attr($frequency); ?>" data-hide-days="<?php echo esc_attr($hide_days); ?>" data-delay="<?php echo esc_attr($delay); ?>" data-scroll-threshold="<?php echo esc_attr($scroll_threshold); ?>" data-schedule-start="<?php echo esc_attr($schedule_start ? $schedule_start * 1000 : 0); ?>" data-schedule-end="<?php echo esc_attr($schedule_end ? $schedule_end * 1000 : 0); ?>" data-auto-open="<?php echo 'auto' === $trigger ? '1' : '0'; ?>" data-close-overlay="<?php echo $close_overlay ? '1' : '0'; ?>" data-preview="<?php echo $preview ? '1' : '0'; ?>" role="dialog" aria-modal="true" <?php if ($show_modal_title_heading && $title !== '') : ?>aria-labelledby="<?php echo esc_attr($modal_id); ?>-title"<?php else : ?>aria-label="<?php echo esc_attr($title !== '' ? $title : 'モーダル'); ?>"<?php endif; ?> hidden>
             <div class="ship-modal__backdrop" data-ship-modal-close></div>
             <div class="ship-modal__dialog" role="document" tabindex="-1">
                 <?php if ($show_modal_title_heading && $title !== '') : ?><h2 id="<?php echo esc_attr($modal_id); ?>-title" class="screen-reader-text"><?php echo esc_html($title); ?></h2><?php endif; ?>

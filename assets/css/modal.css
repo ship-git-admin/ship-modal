@@ -216,3 +216,18 @@
 @media (prefers-reduced-motion:reduce){
   .ship-modal,.ship-modal__dialog{transition:none}
 }
+
+/* 右下ポップアップの画面端余白は、選択した端末幅ごとに調整する。 */
+.ship-modal--side{padding:var(--ship-modal-side-margin-pc-y,24px) var(--ship-modal-side-margin-pc-x,24px)}
+.ship-modal--side .ship-modal__dialog{width:min(calc(100vw - var(--ship-modal-side-margin-pc-x,24px) - var(--ship-modal-side-margin-pc-x,24px)),var(--ship-modal-max-width,420px));max-height:calc(100dvh - var(--ship-modal-side-margin-pc-y,24px) - var(--ship-modal-side-margin-pc-y,24px))}
+.ship-modal--side .ship-modal__content{max-height:calc(100dvh - var(--ship-modal-side-margin-pc-y,24px) - var(--ship-modal-side-margin-pc-y,24px))}
+@media (min-width:768px) and (max-width:1024px){
+  .ship-modal--side{padding:var(--ship-modal-side-margin-tb-y,24px) var(--ship-modal-side-margin-tb-x,24px)}
+  .ship-modal--side .ship-modal__dialog{width:min(calc(100vw - var(--ship-modal-side-margin-tb-x,24px) - var(--ship-modal-side-margin-tb-x,24px)),var(--ship-modal-max-width,420px));max-height:calc(100dvh - var(--ship-modal-side-margin-tb-y,24px) - var(--ship-modal-side-margin-tb-y,24px))}
+  .ship-modal--side .ship-modal__content{max-height:calc(100dvh - var(--ship-modal-side-margin-tb-y,24px) - var(--ship-modal-side-margin-tb-y,24px))}
+}
+@media (max-width:767px){
+  .ship-modal--side{padding:var(--ship-modal-side-margin-sp-y,12px) var(--ship-modal-side-margin-sp-x,12px)}
+  .ship-modal--side .ship-modal__dialog{width:min(calc(100vw - var(--ship-modal-side-margin-sp-x,12px) - var(--ship-modal-side-margin-sp-x,12px)),var(--ship-modal-max-width,420px));max-height:calc(100dvh - var(--ship-modal-side-margin-sp-y,12px) - var(--ship-modal-side-margin-sp-y,12px))}
+  .ship-modal--side .ship-modal__content{max-height:calc(100dvh - var(--ship-modal-side-margin-sp-y,12px) - var(--ship-modal-side-margin-sp-y,12px))}
+}

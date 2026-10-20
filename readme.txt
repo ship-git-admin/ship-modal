@@ -3,7 +3,7 @@ Contributors: shipinc
 Requires at least: 4.8
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.8.9
+Stable tag: 1.9.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -25,7 +25,7 @@ HTML、画像、画像＋テキスト、ページャー、表示期間、表示�
 
 管理者と編集者が編集できるモーダルを、全ページ・トップページ・投稿・指定ページ・ショートコードへ表示できます。
 日別集計、CSV出力、GTM/GA4向けdataLayerイベント、GitHub Release Assetからの自動更新に対応します。
-表示頻度の「このタブで1回」「端末の現地日付で1日1回」「このブラウザで1回」は、ログインユーザー単位ではなく閲覧者側の保存領域を使います。
+表示頻度の「このタブで1回」「端末の現地日付で1日1回」「このブラウザで1回」「閉じた後、指定日数は表示しない」は、ログインユーザー単位ではなく閲覧者側の保存領域を使います。非表示日数は0〜365日で指定でき、0なら毎回表示します。
 期間指定は画面上の表示制御です。開始前の内容もHTMLソースには含まれるため、公開前の機密情報には使用しないでください。
 GA4の同意状態は `window.ShipModalConsent.setAnalyticsConsent(true)` / `false` でページ表示後も更新できます。未同意中はGoogleタグとdataLayerの双方へ送信しません。
 
@@ -36,6 +36,11 @@ GA4の同意状態は `window.ShipModalConsent.setAnalyticsConsent(true)` / `fal
 3. 「モーダル」から内容と表示設定を登録します。
 
 == Changelog ==
+
+= 1.9.0 =
+* 右下ポップアップの画面端余白をPC・TB・SP別に任意調整できるよう改善。
+* 閉じた後の非表示日数を選択式で追加（0なら毎回表示）。
+* 表示レイアウトの説明から、フレーム設定と重複する案内を削除。
 
 = 1.8.9 =
 * 接続元IP 150.249.250.59 からのShip Modal内部計測とGA4／GTMイベント送信を除外。
