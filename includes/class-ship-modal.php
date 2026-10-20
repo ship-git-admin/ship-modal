@@ -1013,7 +1013,7 @@ final class Ship_Modal
         return $label . ' — ' . $template_file;
     }
 
-    private function normalize_target_rules($rules)
+    private function normalize_target_rules($rules, $validate_template_registration = true)
     {
         $normalized = array();
         $rules = (array) $rules;
@@ -1078,9 +1078,14 @@ final class Ship_Modal
                         continue;
                     }
                 } elseif ('template' === $value_type) {
-                    $templates = $this->targetable_page_templates();
-                    if ('default' !== $value && ! isset($templates[$value])) {
+                    if ('' === $value) {
                         continue;
+                    }
+                    if ($validate_template_registration) {
+                        $templates = $this->targetable_page_templates();
+                        if ('default' !== $value && ! isset($templates[$value])) {
+                            continue;
+                        }
                     }
                 } else {
                     $value = '';
@@ -1196,9 +1201,6 @@ final class Ship_Modal
                 $queried_post_id = absint($wp_the_query->get_queried_object_id());
                 $targetable_types = $this->targetable_post_types();
                 if (! $queried_post_id || ! isset($targetable_types[get_post_type($queried_post_id)])) {
-                    return false;
-                }
-                if ('default' !== $value && ! isset($this->targetable_page_templates()[$value])) {
                     return false;
                 }
                 $assigned_template = get_page_template_slug($queried_post_id);
@@ -2601,7 +2603,7 @@ final class Ship_Modal
             $target_ids = array_values(array_filter(array_map('absint', (array) $this->meta($post_id, 'target_ids', array()))));
             $matches = is_singular() && in_array((int) get_queried_object_id(), $target_ids, true);
             if (! $matches) {
-                $target_rules = $this->normalize_target_rules($this->meta($post_id, 'target_rules', array()));
+                $target_rules = $this->normalize_target_rules($this->meta($post_id, 'target_rules', array()), false);
                 foreach ($target_rules as $rule) {
                     if ($this->target_rule_matches($rule)) {
                         $matches = true;
@@ -2616,7 +2618,7 @@ final class Ship_Modal
             if (is_singular() && in_array((int) get_queried_object_id(), $exclude_ids, true)) {
                 return false;
             }
-            $exclude_rules = $this->normalize_target_rules($this->meta($post_id, 'exclude_rules', array()));
+            $exclude_rules = $this->normalize_target_rules($this->meta($post_id, 'exclude_rules', array()), false);
             foreach ($exclude_rules as $rule) {
                 if ($this->target_rule_matches($rule)) {
                     return false;
