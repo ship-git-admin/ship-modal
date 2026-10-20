@@ -14,14 +14,23 @@
     var breakpoint = parseInt($('#ship-modal-sp_breakpoint').val(), 10);
     if (isNaN(breakpoint)) return;
     breakpoint = Math.max(320, Math.min(1200, breakpoint));
-    var label = 'SP（' + breakpoint + 'px以下）';
-    var $row = $('#ship-modal-margin-sp-x').closest('tr');
-    $row.children('th[scope="row"]').text(label);
-    $row.find('label.screen-reader-text').each(function () {
-      $(this).text($(this).text().replace(/^SP（[^）]*）/, label));
-    });
-    $row.find('select.ship-modal-length-unit').each(function () {
-      $(this).attr('aria-label', String($(this).attr('aria-label') || '').replace(/^SP（[^）]*）/, label));
+    var pcStart = Math.max(1024, breakpoint) + 1;
+    var tabletLabel = breakpoint < 1024 ? 'TB（' + (breakpoint + 1) + '〜1024px）' : 'TB（該当なし）';
+    var labels = {
+      pc: 'PC（' + pcStart + 'px以上）',
+      tb: tabletLabel,
+      sp: 'SP（' + breakpoint + 'px以下）'
+    };
+    Object.keys(labels).forEach(function (device) {
+      var label = labels[device];
+      var $row = $('#ship-modal-margin-' + device + '-x').closest('tr');
+      $row.children('th[scope="row"]').text(label);
+      $row.find('label.screen-reader-text').each(function () {
+        $(this).text($(this).text().replace(/^(PC|TB|SP)（[^）]*）/, label));
+      });
+      $row.find('select.ship-modal-length-unit').each(function () {
+        $(this).attr('aria-label', String($(this).attr('aria-label') || '').replace(/^(PC|TB|SP)（[^）]*）/, label));
+      });
     });
   }
 

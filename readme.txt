@@ -3,7 +3,7 @@ Contributors: shipinc
 Requires at least: 4.8
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.9.5
+Stable tag: 1.9.6
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -38,6 +38,10 @@ GA4の同意状態は `window.ShipModalConsent.setAnalyticsConsent(true)` / `fal
 3. 「モーダル」から内容と表示設定を登録します。
 
 == Changelog ==
+
+= 1.9.6 =
+* 右下配置のPC・TB・SP別余白がSP切替幅に合わせて切り替わるよう改善し、管理画面の適用範囲表示も連動。
+* SP表示の閉じるボタンをさらに2px外側へ調整し、右下配置では余白に応じて画面外へはみ出さないよう制御。
 
 = 1.9.5 =
 * 2秒以上の自動表示で条件を満たした場合に限り、ページ読み込み完了後、可能ならアイドル時間にモーダル画像を低優先度で先読みするよう改善。

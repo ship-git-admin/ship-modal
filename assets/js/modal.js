@@ -707,8 +707,11 @@
     breakpoint = Math.max(320, Math.min(1200, breakpoint));
     var viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
     var isSp = viewportWidth <= breakpoint;
+    var isTablet = !isSp && viewportWidth <= 1024;
     if (isSp && !modal.classList.contains('ship-modal--sp')) modal.classList.add('ship-modal--sp');
     else if (!isSp && modal.classList.contains('ship-modal--sp')) modal.classList.remove('ship-modal--sp');
+    if (isTablet && !modal.classList.contains('ship-modal--tb')) modal.classList.add('ship-modal--tb');
+    else if (!isTablet && modal.classList.contains('ship-modal--tb')) modal.classList.remove('ship-modal--tb');
   }
 
   function initializeModal(modal) {

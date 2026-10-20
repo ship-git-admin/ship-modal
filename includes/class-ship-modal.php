@@ -1212,7 +1212,10 @@ final class Ship_Modal
                     <table class="widefat striped ship-modal-position-table">
                         <thead><tr><th scope="col">端末</th><th scope="col">X軸（右端）</th><th scope="col">Y軸（下端）</th></tr></thead>
                         <tbody>
-                            <?php foreach (array('pc' => 'PC（1025px以上）', 'tb' => 'TB（768〜1024px）', 'sp' => 'SP（' . $sp_breakpoint . 'px以下）') as $device => $device_label) : ?>
+                            <?php
+                            $pc_margin_start = max(1024, $sp_breakpoint) + 1;
+                            $tb_margin_label = $sp_breakpoint < 1024 ? 'TB（' . ($sp_breakpoint + 1) . '〜1024px）' : 'TB（該当なし）';
+                            foreach (array('pc' => 'PC（' . $pc_margin_start . 'px以上）', 'tb' => $tb_margin_label, 'sp' => 'SP（' . $sp_breakpoint . 'px以下）') as $device => $device_label) : ?>
                                 <tr><th scope="row"><?php echo esc_html($device_label); ?></th>
                                     <?php foreach (array('x' => 'x', 'y' => 'y') as $axis => $axis_label) : ?>
                                         <td><label class="screen-reader-text" for="ship-modal-margin-<?php echo esc_attr($device . '-' . $axis); ?>"><?php echo esc_html($device_label . ' ' . strtoupper($axis_label) . '軸の余白'); ?></label><input type="number" min="0" max="<?php echo 'px' === $position_margin_units[$device][$axis] ? '200' : '100'; ?>" step="0.01" class="small-text" name="ship_modal_margin_<?php echo esc_attr($device . '_' . $axis); ?>" id="ship-modal-margin-<?php echo esc_attr($device . '-' . $axis); ?>" value="<?php echo esc_attr($position_margins[$device][$axis]); ?>"> <select class="ship-modal-length-unit" name="ship_modal_margin_<?php echo esc_attr($device . '_' . $axis); ?>_unit" aria-label="<?php echo esc_attr($device_label . ' ' . strtoupper($axis_label) . '軸の単位'); ?>"><?php foreach (array('px' => 'px', 'vw' => 'vw', '%' => '%') as $unit_value => $unit_label) : ?><option value="<?php echo esc_attr($unit_value); ?>" <?php selected($position_margin_units[$device][$axis], $unit_value); ?>><?php echo esc_html($unit_label); ?></option><?php endforeach; ?></select></td>

@@ -252,11 +252,9 @@
 .ship-modal--non-blocking .ship-modal__dialog{pointer-events:auto}
 .ship-modal--side .ship-modal__dialog{width:min(calc(100vw - var(--ship-modal-side-margin-pc-x,24px) - var(--ship-modal-side-margin-pc-x,24px)),var(--ship-modal-max-width,420px));max-height:calc(100dvh - var(--ship-modal-side-margin-pc-y,24px) - var(--ship-modal-side-margin-pc-y,24px))}
 .ship-modal--side .ship-modal__content{max-height:calc(100dvh - var(--ship-modal-side-margin-pc-y,24px) - var(--ship-modal-side-margin-pc-y,24px))}
-@media (min-width:768px) and (max-width:1024px){
-  .ship-modal--side{padding:var(--ship-modal-side-margin-tb-y,24px) var(--ship-modal-side-margin-tb-x,24px)}
-  .ship-modal--side .ship-modal__dialog{width:min(calc(100vw - var(--ship-modal-side-margin-tb-x,24px) - var(--ship-modal-side-margin-tb-x,24px)),var(--ship-modal-max-width,420px));max-height:calc(100dvh - var(--ship-modal-side-margin-tb-y,24px) - var(--ship-modal-side-margin-tb-y,24px))}
-  .ship-modal--side .ship-modal__content{max-height:calc(100dvh - var(--ship-modal-side-margin-tb-y,24px) - var(--ship-modal-side-margin-tb-y,24px))}
-}
+.ship-modal.ship-modal--tb.ship-modal--side{padding:var(--ship-modal-side-margin-tb-y,24px) var(--ship-modal-side-margin-tb-x,24px)}
+.ship-modal.ship-modal--tb.ship-modal--side .ship-modal__dialog{width:min(calc(100vw - var(--ship-modal-side-margin-tb-x,24px) - var(--ship-modal-side-margin-tb-x,24px)),var(--ship-modal-max-width,420px));max-height:calc(100dvh - var(--ship-modal-side-margin-tb-y,24px) - var(--ship-modal-side-margin-tb-y,24px))}
+.ship-modal.ship-modal--tb.ship-modal--side .ship-modal__content{max-height:calc(100dvh - var(--ship-modal-side-margin-tb-y,24px) - var(--ship-modal-side-margin-tb-y,24px))}
 
 .ship-modal.ship-modal--sp.ship-modal--side{padding:var(--ship-modal-side-margin-sp-y,12px) var(--ship-modal-side-margin-sp-x,12px)}
 .ship-modal.ship-modal--sp.ship-modal--side .ship-modal__dialog{width:min(calc(100vw - var(--ship-modal-side-margin-sp-x,12px) - var(--ship-modal-side-margin-sp-x,12px)),var(--ship-modal-max-width,420px));max-height:calc(100dvh - var(--ship-modal-side-margin-sp-y,12px) - var(--ship-modal-side-margin-sp-y,12px))}
@@ -271,5 +269,5 @@
 .ship-modal.ship-modal--sp .ship-modal__content--pager .ship-modal__page-html{padding:var(--ship-modal-padding,20px)}
 .ship-modal.ship-modal--sp .ship-modal__hybrid--top .ship-modal__hybrid-media{margin:calc(var(--ship-modal-padding,20px) * -1) calc(var(--ship-modal-padding,20px) * -1) var(--ship-modal-padding,20px)}
 
-.ship-modal.ship-modal--sp .ship-modal__close{top:-8px;right:-8px;width:28px;height:28px;font-size:20px}
-.ship-modal.ship-modal--sp.ship-modal--side .ship-modal__close{top:max(-6px,calc(6px - var(--ship-modal-side-margin-sp-y,12px)));right:max(-6px,calc(6px - var(--ship-modal-side-margin-sp-x,12px)))}
+.ship-modal.ship-modal--sp .ship-modal__close{top:-10px;right:-10px;width:28px;height:28px;font-size:20px}
+.ship-modal.ship-modal--sp.ship-modal--side .ship-modal__close{top:max(-8px,calc(4px - var(--ship-modal-side-margin-sp-y,12px)));right:max(-8px,calc(4px - var(--ship-modal-side-margin-sp-x,12px)))}
