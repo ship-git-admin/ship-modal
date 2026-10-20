@@ -3,7 +3,7 @@ Contributors: shipinc
 Requires at least: 4.8
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.10.3
+Stable tag: 1.10.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -38,6 +38,9 @@ GA4の同意状態は `window.ShipModalConsent.setAnalyticsConsent(true)` / `fal
 3. 「モーダル」から内容と表示設定を登録します。
 
 == Changelog ==
+
+= 1.10.4 =
+* 遅れて読み込まれるモーダル画像が突然表示されないよう、読み込み・デコード完了後にフェード表示するよう改善。
 
 = 1.10.3 =
 * 保存済みのページテンプレート条件が、表示側のテンプレート一覧の差によって無視される問題を修正。

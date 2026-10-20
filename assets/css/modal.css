@@ -63,6 +63,9 @@
 }
 .ship-modal__content picture{display:block;text-align:center}
 .ship-modal__content picture .ship-modal__image{margin-right:auto;margin-left:auto}
+.ship-modal__image{transition:opacity .18s ease}
+.ship-modal__image--loading{opacity:0}
+.ship-modal__image--loaded{opacity:1}
 .ship-modal__hybrid-media,
 .ship-modal__page-media{
   text-align:center;
@@ -243,7 +246,7 @@
 .ship-modal.ship-modal--sp .ship-modal__content h3,.ship-modal.ship-modal--sp .ship-modal__hybrid-html h3,.ship-modal.ship-modal--sp .ship-modal__page-html h3{font-size:17px}
 
 @media (prefers-reduced-motion:reduce){
-  .ship-modal,.ship-modal__dialog{transition:none}
+  .ship-modal,.ship-modal__dialog,.ship-modal__image{transition:none}
 }
 
 /* 右下ポップアップの画面端余白は、選択した端末幅ごとに調整する。 */

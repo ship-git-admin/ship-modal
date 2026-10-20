@@ -186,13 +186,42 @@
     return String(Date.now()) + '-' + String(Math.random()).slice(2);
   }
 
+  function revealModalImage(image) {
+    if (!image || image.dataset.shipModalImageReady === '1') return;
+    var markReady = function () {
+      if (image.dataset.shipModalImageReady === '1') return;
+      image.dataset.shipModalImageReady = '1';
+      image.classList.remove('ship-modal__image--loading');
+      image.classList.add('ship-modal__image--loaded');
+    };
+    if (typeof image.decode === 'function') {
+      try {
+        image.decode().then(markReady, markReady);
+      } catch (e) {
+        markReady();
+      }
+      return;
+    }
+    markReady();
+  }
+
+  function prepareModalImage(image) {
+    if (!image || image.dataset.shipModalImagePrepared === '1') return;
+    image.dataset.shipModalImagePrepared = '1';
+    image.classList.add('ship-modal__image--loading');
+    image.addEventListener('load', function () { revealModalImage(image); });
+    image.addEventListener('error', function () { revealModalImage(image); });
+  }
+
   function hydrateImages(root) {
     if (!root) return;
+    var images = Array.prototype.slice.call(root.querySelectorAll('img.ship-modal__image'));
+    images.forEach(prepareModalImage);
     root.querySelectorAll('[data-ship-modal-srcset]').forEach(function (source) {
       if (!source.getAttribute('srcset')) source.setAttribute('srcset', source.getAttribute('data-ship-modal-srcset'));
       source.removeAttribute('data-ship-modal-srcset');
     });
-    root.querySelectorAll('img[data-ship-modal-src]').forEach(function (image) {
+    images.forEach(function (image) {
       var src = image.getAttribute('data-ship-modal-src');
       var srcset = image.getAttribute('data-ship-modal-srcset');
       var sizes = image.getAttribute('data-ship-modal-sizes');
@@ -203,6 +232,7 @@
       image.removeAttribute('data-ship-modal-srcset');
       image.removeAttribute('data-ship-modal-sizes');
       image.setAttribute('loading', 'eager');
+      if (image.complete && image.naturalWidth > 1) revealModalImage(image);
     });
   }
 
