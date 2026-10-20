@@ -163,19 +163,40 @@
   function refreshTargetAddMode(picker) {
     var $picker = $(picker);
     var mode = $picker.find('.ship-modal-target-add-mode').val() || 'individual';
+    var controlMode = mode.replace(/_/g, '-');
     $picker.find('.ship-modal-target-add-controls').hide();
-    $picker.find('.ship-modal-target-add-controls--' + mode).show();
+    $picker.find('.ship-modal-target-add-controls--' + controlMode).show();
   }
 
   function refreshPostTypeAddButton(picker) {
     var $picker = $(picker);
     var postType = String($picker.find('.ship-modal-target-rule-post-type').val() || '');
-    var key = targetRuleKey('post_type', { post_type: postType });
     var $button = $picker.find('.ship-modal-target-rule-add-post-type');
+    if (!postType) {
+      $button.removeData('targetRuleKey').prop('disabled', true).text('＋追加');
+      return;
+    }
+    var key = targetRuleKey('post_type', { post_type: postType });
     if (targetRuleIsSelected(key, $picker)) {
       $button.data('targetRuleKey', key).prop('disabled', true).text('追加済み');
     } else {
       $button.removeData('targetRuleKey').prop('disabled', false).text('＋追加');
+    }
+  }
+
+  function refreshSlugAddButton(picker) {
+    var $picker = $(picker);
+    var keyword = $.trim(String($picker.find('.ship-modal-target-slug-keyword').val() || ''));
+    var $button = $picker.find('.ship-modal-target-rule-add-slug');
+    if (!keyword) {
+      $button.prop('disabled', true).text('＋追加');
+      return;
+    }
+    var key = targetRuleKey('slug_contains', { keyword: keyword });
+    if (targetRuleIsSelected(key, $picker)) {
+      $button.prop('disabled', true).text('追加済み');
+    } else {
+      $button.prop('disabled', false).text('＋追加');
     }
   }
 
@@ -216,6 +237,7 @@
 
   function targetRuleKey(type, values) {
     if (type === 'post_type') return 'post_type:' + values.post_type;
+    if (type === 'slug_contains') return 'slug_contains:' + String(values.keyword || '').trim().toLowerCase();
     return 'taxonomy:' + values.taxonomy + ':' + values.term_id;
   }
 
@@ -239,6 +261,8 @@
     addRuleInput('type', type);
     if (type === 'post_type') {
       addRuleInput('post_type', values.post_type);
+    } else if (type === 'slug_contains') {
+      addRuleInput('keyword', String(values.keyword || '').trim());
     } else {
       addRuleInput('taxonomy', values.taxonomy);
       addRuleInput('term_id', values.term_id);
@@ -390,6 +414,7 @@
       updateTargetCount(this);
       refreshTargetAddMode(this);
       refreshPostTypeAddButton(this);
+      refreshSlugAddButton(this);
     });
     refreshStatsExportLink();
     $(document)
@@ -433,6 +458,16 @@
         refreshPostTypeAddButton($picker);
       }
     });
+    $(document).on('input', '.ship-modal-target-slug-keyword', function () {
+      refreshSlugAddButton($(this).closest('.ship-modal-target-picker'));
+    });
+    $(document).on('click', '.ship-modal-target-rule-add-slug', function () {
+      var $picker = $(this).closest('.ship-modal-target-picker');
+      var keyword = $.trim(String($picker.find('.ship-modal-target-slug-keyword').val() || ''));
+      if (!keyword) return;
+      addTargetRule('slug_contains', { keyword: keyword }, 'Slugに「' + keyword + '」を含む', $picker);
+      refreshSlugAddButton($picker);
+    });
     $(document).on('input', '.ship-modal-target-term-search', function () {
       var $picker = $(this).closest('.ship-modal-target-picker');
       targetTermSearchPicker = $picker.get(0);
@@ -473,6 +508,7 @@
           if (String($(this).data('targetRuleKey')) === removedRuleKey) $(this).prop('disabled', false).text('＋追加');
         });
         refreshPostTypeAddButton($picker);
+        refreshSlugAddButton($picker);
       }
     });
     $(document).on('click', '.ship-modal-target-clear', function (event) {
@@ -483,6 +519,7 @@
       $picker.find('.ship-modal-target-results .button').prop('disabled', false).text('＋追加');
       $picker.find('.ship-modal-target-term-result .button').prop('disabled', false).text('＋追加');
       refreshPostTypeAddButton($picker);
+      refreshSlugAddButton($picker);
     });
     var frame;
     function selectImage(targetId, previewId) {

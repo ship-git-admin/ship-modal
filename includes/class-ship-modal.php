@@ -949,6 +949,20 @@ final class Ship_Modal
                 $normalized[$key] = array('type' => 'post_type', 'post_type' => $post_type);
                 continue;
             }
+            if ('slug_contains' === $type) {
+                $keyword = isset($rule['keyword']) && is_scalar($rule['keyword']) ? trim(sanitize_text_field((string) $rule['keyword'])) : '';
+                if (function_exists('mb_substr')) {
+                    $keyword = mb_substr($keyword, 0, 100, 'UTF-8');
+                } elseif (preg_match('/^.{0,100}/us', $keyword, $matches)) {
+                    $keyword = $matches[0];
+                }
+                if ('' === $keyword) {
+                    continue;
+                }
+                $key = 'slug_contains:' . strtolower($keyword);
+                $normalized[$key] = array('type' => 'slug_contains', 'keyword' => $keyword);
+                continue;
+            }
             if ('taxonomy' !== $type) {
                 continue;
             }
@@ -999,6 +1013,33 @@ final class Ship_Modal
                 return true;
             }
             return is_post_type_archive($post_type) || ('post' === $post_type && is_home());
+        }
+
+        if ('slug_contains' === $rule['type'] && isset($rule['keyword']) && '' !== (string) $rule['keyword']) {
+            $queried_object = get_queried_object();
+            $slug = '';
+            if ($queried_object instanceof WP_Post) {
+                $targetable_types = $this->targetable_post_types();
+                if (! isset($targetable_types[$queried_object->post_type])) {
+                    return false;
+                }
+                $slug = $queried_object->post_name;
+            } elseif ($queried_object instanceof WP_Term) {
+                $targetable_taxonomies = $this->targetable_taxonomies();
+                if (! isset($targetable_taxonomies[$queried_object->taxonomy])) {
+                    return false;
+                }
+                $slug = $queried_object->slug;
+            } else {
+                return false;
+            }
+
+            $slug = rawurldecode((string) $slug);
+            $keyword = (string) $rule['keyword'];
+            if (function_exists('mb_stripos')) {
+                return false !== mb_stripos($slug, $keyword, 0, 'UTF-8');
+            }
+            return false !== stripos($slug, $keyword);
         }
 
         if ('taxonomy' !== $rule['type'] || empty($rule['taxonomy']) || empty($rule['term_id'])) {
@@ -1059,7 +1100,7 @@ final class Ship_Modal
             echo '<input type="hidden" name="ship_modal_exclude_ids_present" value="1">';
         }
         echo '<div class="ship-modal-target-picker__heading"><strong>' . esc_html($title) . '</strong><span class="ship-modal-target-count" aria-live="polite"></span></div>';
-        echo '<label class="ship-modal-target-mode-label">追加する種類 <select class="ship-modal-target-add-mode"><option value="individual">ページ・記事</option><option value="post_type">投稿タイプ全体</option><option value="taxonomy"' . (empty($targetable_taxonomies) ? ' disabled' : '') . '>タクソノミー</option></select></label>';
+        echo '<label class="ship-modal-target-mode-label">追加する種類 <select class="ship-modal-target-add-mode"><option value="individual">ページ・記事</option><option value="post_type">投稿タイプ単位</option><option value="taxonomy"' . (empty($targetable_taxonomies) ? ' disabled' : '') . '>タクソノミー</option><option value="slug">Slugに含む文字列</option></select></label>';
 
         echo '<div class="ship-modal-target-add-controls ship-modal-target-add-controls--individual">';
         echo '<div class="ship-modal-target-search-row"><input type="search" class="widefat ship-modal-target-search" aria-label="' . esc_attr($search_label) . '" placeholder="ページ名・記事タイトルで検索（2文字以上）"><select class="ship-modal-target-post-type" aria-label="検索する種類"><option value="">すべての種類</option>';
@@ -1068,11 +1109,13 @@ final class Ship_Modal
         }
         echo '</select></div><div class="ship-modal-target-results"><p class="description">検索結果から追加できます。</p></div></div>';
 
-        echo '<div class="ship-modal-target-add-controls ship-modal-target-add-controls--post-type"><label>投稿タイプ <select class="ship-modal-target-rule-post-type">';
+        echo '<div class="ship-modal-target-add-controls ship-modal-target-add-controls--post-type"><label>投稿タイプ <select class="ship-modal-target-rule-post-type"><option value="" selected disabled>投稿タイプを選択</option>';
         foreach ($targetable_types as $target_type => $target_type_object) {
             echo '<option value="' . esc_attr($target_type) . '">' . esc_html($target_type_object->labels->name) . '</option>';
         }
         echo '</select></label> <button type="button" class="button ship-modal-target-rule-add-post-type">＋追加</button><p class="description">' . esc_html($post_type_help) . '</p></div>';
+
+        echo '<div class="ship-modal-target-add-controls ship-modal-target-add-controls--slug"><label>Slugに含む文字列 <input type="text" class="regular-text ship-modal-target-slug-keyword" maxlength="100" autocomplete="off" placeholder="例：campaign"></label> <button type="button" class="button ship-modal-target-rule-add-slug" disabled>＋追加</button><p class="description">ページ・記事・タームのSlug（URL末尾）にこの文字列を含むものを表示対象にします。除外条件では該当するものを除外します。複数指定は「いずれかに一致」です。</p></div>';
 
         echo '<div class="ship-modal-target-add-controls ship-modal-target-add-controls--taxonomy"><label>タクソノミー <select class="ship-modal-target-rule-taxonomy">';
         if (empty($targetable_taxonomies)) {
@@ -1096,7 +1139,7 @@ final class Ship_Modal
                 $rule_key = 'post_type:' . $post_type;
                 $rule_label = '投稿タイプ：' . $targetable_types[$post_type]->labels->name;
                 echo '<span class="ship-modal-target-chip" data-target-rule-key="' . esc_attr($rule_key) . '"><input type="hidden" name="' . esc_attr($rule_field) . '[' . esc_attr($rule_index) . '][type]" value="post_type"><input type="hidden" name="' . esc_attr($rule_field) . '[' . esc_attr($rule_index) . '][post_type]" value="' . esc_attr($post_type) . '"><span>' . esc_html($rule_label) . '</span><button type="button" class="ship-modal-target-remove" aria-label="' . esc_attr($is_exclude ? '除外を解除' : '選択を解除') . '">×</button></span>';
-            } else {
+            } elseif ('taxonomy' === $rule['type']) {
                 $taxonomy = $rule['taxonomy'];
                 $term_id = absint($rule['term_id']);
                 $term = get_term($term_id, $taxonomy);
@@ -1106,13 +1149,18 @@ final class Ship_Modal
                 $rule_key = 'taxonomy:' . $taxonomy . ':' . $term_id;
                 $rule_label = $this->target_term_label($term, $targetable_taxonomies[$taxonomy]);
                 echo '<span class="ship-modal-target-chip" data-target-rule-key="' . esc_attr($rule_key) . '"><input type="hidden" name="' . esc_attr($rule_field) . '[' . esc_attr($rule_index) . '][type]" value="taxonomy"><input type="hidden" name="' . esc_attr($rule_field) . '[' . esc_attr($rule_index) . '][taxonomy]" value="' . esc_attr($taxonomy) . '"><input type="hidden" name="' . esc_attr($rule_field) . '[' . esc_attr($rule_index) . '][term_id]" value="' . esc_attr($term_id) . '"><span>' . esc_html($rule_label) . '</span><button type="button" class="ship-modal-target-remove" aria-label="' . esc_attr($is_exclude ? '除外を解除' : '選択を解除') . '">×</button></span>';
+            } else {
+                $keyword = $rule['keyword'];
+                $rule_key = 'slug_contains:' . strtolower($keyword);
+                $rule_label = 'Slugに「' . $keyword . '」を含む';
+                echo '<span class="ship-modal-target-chip" data-target-rule-key="' . esc_attr($rule_key) . '"><input type="hidden" name="' . esc_attr($rule_field) . '[' . esc_attr($rule_index) . '][type]" value="slug_contains"><input type="hidden" name="' . esc_attr($rule_field) . '[' . esc_attr($rule_index) . '][keyword]" value="' . esc_attr($keyword) . '"><span>' . esc_html($rule_label) . '</span><button type="button" class="ship-modal-target-remove" aria-label="' . esc_attr($is_exclude ? '除外を解除' : '選択を解除') . '">×</button></span>';
             }
             $rule_index++;
         }
         echo '</div><p class="description">';
         echo $is_exclude
-            ? '「全ページ」を選んだ場合でも、ここに追加したページ・投稿タイプ・タクソノミーには表示しません。'
-            : '「指定ページのみ」で選ぶと、ここに追加したページ・投稿タイプ・タクソノミーだけに表示します。';
+            ? '「全ページ」を選んだ場合でも、ここに追加したページ・投稿タイプ・タクソノミー・Slug条件には表示しません。'
+            : '「指定ページのみ」で選ぶと、ここに追加したページ・投稿タイプ・タクソノミー・Slug条件だけに表示します。';
         echo '</p></div>';
     }
 
