@@ -3,7 +3,7 @@ Contributors: shipinc
 Requires at least: 4.8
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.9.0
+Stable tag: 1.9.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -37,13 +37,18 @@ GA4の同意状態は `window.ShipModalConsent.setAnalyticsConsent(true)` / `fal
 
 == Changelog ==
 
+= 1.9.1 =
+* PC用最大幅を空欄で自動設定できるようにし、SP用最大幅（px／％）を任意指定可能に改善。
+* 右下ポップアップのPC・TB・SP別画面端余白でpx・vw・％を選択可能に改善。
+* 計測説明に、SHIP本社ネットワークからのアクセスが対象外であることを追記。
+
 = 1.9.0 =
 * 右下ポップアップの画面端余白をPC・TB・SP別に任意調整できるよう改善。
 * 閉じた後の非表示日数を選択式で追加（0なら毎回表示）。
 * 表示レイアウトの説明から、フレーム設定と重複する案内を削除。
 
 = 1.8.9 =
-* 接続元IP 150.249.250.59 からのShip Modal内部計測とGA4／GTMイベント送信を除外。
+* SHIP本社ネットワークからのアクセスをShip Modal内部計測とGA4／GTMイベント送信の対象外に変更。
 
 = 1.8.8 =
 * Plugin Update Checkerを公式5.7へ更新し、GitHub Release Asset経由の自動更新互換性を維持。

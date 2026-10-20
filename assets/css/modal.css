@@ -231,3 +231,8 @@
   .ship-modal--side .ship-modal__dialog{width:min(calc(100vw - var(--ship-modal-side-margin-sp-x,12px) - var(--ship-modal-side-margin-sp-x,12px)),var(--ship-modal-max-width,420px));max-height:calc(100dvh - var(--ship-modal-side-margin-sp-y,12px) - var(--ship-modal-side-margin-sp-y,12px))}
   .ship-modal--side .ship-modal__content{max-height:calc(100dvh - var(--ship-modal-side-margin-sp-y,12px) - var(--ship-modal-side-margin-sp-y,12px))}
 }
+@media (max-width:767px){
+  .ship-modal__dialog{width:min(calc(100vw - 24px),var(--ship-modal-max-width-sp,var(--ship-modal-max-width,620px)))}
+  .ship-modal--bottom .ship-modal__dialog{width:min(calc(100vw - 24px),var(--ship-modal-max-width-sp,var(--ship-modal-max-width,980px)))}
+  .ship-modal--side .ship-modal__dialog{width:min(calc(100vw - var(--ship-modal-side-margin-sp-x,12px) - var(--ship-modal-side-margin-sp-x,12px)),var(--ship-modal-max-width-sp,var(--ship-modal-max-width,420px)))}
+}

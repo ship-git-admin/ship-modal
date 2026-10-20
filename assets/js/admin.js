@@ -36,6 +36,18 @@
     $('.ship-modal-trigger-style-row').toggle(trigger === 'manual');
   }
 
+  function syncLengthUnit(select) {
+    var $unit = $(select);
+    var $value = $unit.prev('input[type="number"]');
+    if (!$value.length) return;
+    var unit = $unit.val();
+    var isSpMaxWidth = $value.attr('id') === 'ship-modal-max_width_sp';
+    var max = isSpMaxWidth ? (unit === 'px' ? 1200 : 100) : (unit === 'px' ? 200 : 100);
+    $value.attr('max', max);
+    var current = parseInt($value.val(), 10);
+    if (!isNaN(current) && current > max) $value.val(max).trigger('input').trigger('change');
+  }
+
   function updateCounter(field) {
     var $field = $(field);
     var max = parseInt($field.attr('maxlength'), 10);
@@ -198,6 +210,7 @@
 
   $(function () {
     refreshRows();
+    $('.ship-modal-length-unit').each(function () { syncLengthUnit(this); });
     $('[maxlength]').each(function () { updateCounter(this); });
     $('.ship-modal-button-label').each(function () { updateButtonLabelMeta(this); });
     refreshButtonActions(document);
@@ -206,6 +219,7 @@
     $(document).on('blur', '.ship-modal-button-label', function () { normalizeButtonLabelField(this); });
     $(document).on('change', '.ship-modal-button-action', function () { refreshButtonActions($(this).closest('.ship-modal-button-field')); });
     $('#ship-modal-content_type, #ship-modal-trigger, #ship-modal-target-post-type, #ship-modal-design, #ship-modal-frequency').on('change', refreshRows);
+    $(document).on('change.shipModalLengthUnit', '.ship-modal-length-unit', function () { syncLengthUnit(this); });
     $('input[name="ship_modal_scope"]').on('change', function () {
       refreshRows();
       if (currentScope() === 'selected') searchTargets();
