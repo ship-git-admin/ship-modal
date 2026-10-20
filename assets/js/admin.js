@@ -216,6 +216,45 @@
     }
   }
 
+  function refreshConditionAddButton(picker) {
+    var $picker = $(picker);
+    var condition = String($picker.find('.ship-modal-target-condition').val() || '');
+    var $postTypeField = $picker.find('.ship-modal-target-condition-value--post-type');
+    var $templateField = $picker.find('.ship-modal-target-condition-value--template');
+    var $postTypeSelect = $picker.find('.ship-modal-target-condition-post-type');
+    var value = '';
+    $postTypeField.removeClass('is-visible');
+    $templateField.removeClass('is-visible');
+    $postTypeSelect.find('option').each(function () {
+      var archiveAvailable = String($(this).attr('data-has-archive') || '') === '1';
+      var postType = String(this.value || '');
+      $(this).prop('disabled', !postType || (condition === 'is_post_type_archive' && !archiveAvailable));
+    });
+    if (condition === 'is_singular_post_type' || condition === 'is_post_type_archive') {
+      $postTypeField.addClass('is-visible');
+      value = String($postTypeSelect.val() || '');
+      if (condition === 'is_post_type_archive' && value && String($postTypeSelect.find('option:selected').attr('data-has-archive') || '') !== '1') {
+        $postTypeSelect.val('');
+        value = '';
+      }
+    } else if (condition === 'is_page_template') {
+      $templateField.addClass('is-visible');
+      value = String($picker.find('.ship-modal-target-condition-template').val() || '');
+    }
+
+    var $button = $picker.find('.ship-modal-target-rule-add-condition');
+    if (!condition || ((condition === 'is_singular_post_type' || condition === 'is_post_type_archive' || condition === 'is_page_template') && !value)) {
+      $button.removeData('targetRuleKey').prop('disabled', true).text('＋追加');
+      return;
+    }
+    var key = targetRuleKey('condition', { condition: condition, value: value });
+    if (targetRuleIsSelected(key, $picker)) {
+      $button.data('targetRuleKey', key).prop('disabled', true).text('追加済み');
+    } else {
+      $button.removeData('targetRuleKey').prop('disabled', false).text('＋追加');
+    }
+  }
+
   function refreshStatsExportLink() {
     $('.ship-modal-stats-export-link').each(function () {
       var $link = $(this);
@@ -255,6 +294,7 @@
     if (type === 'post_type') return 'post_type:' + values.post_type;
     if (type === 'slug_contains') return 'slug_contains:' + String(values.keyword || '').trim().toLowerCase();
     if (type === 'taxonomy_all') return 'taxonomy_all:' + values.taxonomy;
+    if (type === 'condition') return 'condition:' + values.condition + (values.value ? ':' + values.value : '');
     return 'taxonomy:' + values.taxonomy + ':' + values.term_id;
   }
 
@@ -282,6 +322,9 @@
       addRuleInput('keyword', String(values.keyword || '').trim());
     } else if (type === 'taxonomy_all') {
       addRuleInput('taxonomy', values.taxonomy);
+    } else if (type === 'condition') {
+      addRuleInput('condition', values.condition);
+      addRuleInput('value', values.value || '');
     } else {
       addRuleInput('taxonomy', values.taxonomy);
       addRuleInput('term_id', values.term_id);
@@ -435,6 +478,7 @@
       refreshPostTypeAddButton(this);
       refreshSlugAddButton(this);
       refreshTaxonomyAddButton(this);
+      refreshConditionAddButton(this);
     });
     refreshStatsExportLink();
     $(document)
@@ -497,6 +541,29 @@
       addTargetRule('taxonomy_all', { taxonomy: taxonomy }, label, $picker);
       refreshTaxonomyAddButton($picker);
     });
+    $(document).on('change', '.ship-modal-target-condition, .ship-modal-target-condition-post-type, .ship-modal-target-condition-template', function () {
+      refreshConditionAddButton($(this).closest('.ship-modal-target-picker'));
+    });
+    $(document).on('click', '.ship-modal-target-rule-add-condition', function () {
+      var $picker = $(this).closest('.ship-modal-target-picker');
+      var condition = String($picker.find('.ship-modal-target-condition').val() || '');
+      var value = '';
+      if (condition === 'is_singular_post_type' || condition === 'is_post_type_archive') {
+        value = String($picker.find('.ship-modal-target-condition-post-type').val() || '');
+      } else if (condition === 'is_page_template') {
+        value = String($picker.find('.ship-modal-target-condition-template').val() || '');
+      }
+      if (!condition || ((condition === 'is_singular_post_type' || condition === 'is_post_type_archive' || condition === 'is_page_template') && !value)) return;
+      var label = $.trim($picker.find('.ship-modal-target-condition option:selected').text());
+      if (value) {
+        var $valueSelect = condition === 'is_page_template'
+          ? $picker.find('.ship-modal-target-condition-template')
+          : $picker.find('.ship-modal-target-condition-post-type');
+        label += '：' + $.trim($valueSelect.find('option:selected').text());
+      }
+      addTargetRule('condition', { condition: condition, value: value }, label, $picker);
+      refreshConditionAddButton($picker);
+    });
     $(document).on('input', '.ship-modal-target-term-search', function () {
       var $picker = $(this).closest('.ship-modal-target-picker');
       targetTermSearchPicker = $picker.get(0);
@@ -540,6 +607,7 @@
         refreshPostTypeAddButton($picker);
         refreshSlugAddButton($picker);
         refreshTaxonomyAddButton($picker);
+        refreshConditionAddButton($picker);
       }
     });
     $(document).on('click', '.ship-modal-target-clear', function (event) {
@@ -552,6 +620,7 @@
       refreshPostTypeAddButton($picker);
       refreshSlugAddButton($picker);
       refreshTaxonomyAddButton($picker);
+      refreshConditionAddButton($picker);
     });
     var frame;
     function selectImage(targetId, previewId) {

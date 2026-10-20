@@ -9,6 +9,7 @@ final class Ship_Modal
     private static $instance;
     private $rendered_modal_ids = array();
     private $active_modal_ids_cache = null;
+    private $targetable_page_templates_cache = null;
     private $stats_db_error = '';
     private $event_claim_db_error = '';
 
@@ -925,6 +926,93 @@ final class Ship_Modal
         return $taxonomies;
     }
 
+    private function target_query_condition_groups()
+    {
+        return array(
+            '個別ページ' => array(
+                'is_singular' => array('label' => '個別ページ全般（is_singular）'),
+                'is_singular_post_type' => array('label' => '投稿タイプ別の個別ページ（is_singular）', 'value_type' => 'post_type'),
+                'is_page_template' => array('label' => 'ページテンプレート別（is_page_template）', 'value_type' => 'template'),
+            ),
+            'トップ・投稿一覧' => array(
+                'is_front_page' => array('label' => 'サイトのトップページ（is_front_page）'),
+                'is_home' => array('label' => '投稿一覧（is_home）'),
+            ),
+            'アーカイブ' => array(
+                'is_archive' => array('label' => 'すべてのアーカイブ（is_archive）'),
+                'is_post_type_archive' => array('label' => '投稿タイプ別アーカイブ（is_post_type_archive）', 'value_type' => 'post_type'),
+                'is_author' => array('label' => '作成者アーカイブ（is_author）'),
+                'is_date' => array('label' => '日付アーカイブ（is_date）'),
+            ),
+            '検索・エラー' => array(
+                'is_search' => array('label' => '検索結果（is_search）'),
+                'is_404' => array('label' => '404ページ（is_404）'),
+            ),
+        );
+    }
+
+    private function target_query_condition_definitions()
+    {
+        $definitions = array();
+        foreach ($this->target_query_condition_groups() as $conditions) {
+            $definitions = array_merge($definitions, $conditions);
+        }
+
+        return $definitions;
+    }
+
+    private function targetable_page_templates()
+    {
+        if (is_array($this->targetable_page_templates_cache)) {
+            return $this->targetable_page_templates_cache;
+        }
+
+        $templates = array();
+        if (function_exists('get_page_templates')) {
+            foreach ($this->targetable_post_types() as $post_type => $post_type_object) {
+                foreach ((array) get_page_templates(null, $post_type) as $template_name => $template_file) {
+                    if (! is_scalar($template_name) || ! is_scalar($template_file)) {
+                        continue;
+                    }
+                    $template_name = trim((string) $template_name);
+                    $template_file = trim((string) $template_file);
+                    if ('' === $template_name || '' === $template_file) {
+                        continue;
+                    }
+                    if (! isset($templates[$template_file])) {
+                        $templates[$template_file] = array(
+                            'name' => $template_name,
+                            'post_types' => array(),
+                        );
+                    }
+                    $type_label = isset($post_type_object->labels->name) ? $post_type_object->labels->name : $post_type;
+                    $templates[$template_file]['post_types'][$post_type] = $type_label;
+                }
+            }
+        }
+
+        $this->targetable_page_templates_cache = $templates;
+        return $templates;
+    }
+
+    private function target_page_template_label($template_file, $templates)
+    {
+        if ('default' === $template_file) {
+            return '標準テンプレート（カスタムテンプレート未指定）';
+        }
+        if (! isset($templates[$template_file])) {
+            return (string) $template_file;
+        }
+
+        $template = $templates[$template_file];
+        $post_type_labels = array_values($template['post_types']);
+        $label = $template['name'];
+        if ($post_type_labels) {
+            $label .= '（' . implode('・', $post_type_labels) . '）';
+        }
+        return $label . ' — ' . $template_file;
+    }
+
     private function normalize_target_rules($rules)
     {
         $normalized = array();
@@ -934,6 +1022,7 @@ final class Ship_Modal
         }
         $targetable_types = $this->targetable_post_types();
         $targetable_taxonomies = $this->targetable_taxonomies();
+        $condition_definitions = $this->target_query_condition_definitions();
 
         foreach ($rules as $rule) {
             if (! is_array($rule)) {
@@ -970,6 +1059,35 @@ final class Ship_Modal
                 }
                 $key = 'taxonomy_all:' . $taxonomy;
                 $normalized[$key] = array('type' => 'taxonomy_all', 'taxonomy' => $taxonomy);
+                continue;
+            }
+            if ('condition' === $type) {
+                $condition = isset($rule['condition']) && is_scalar($rule['condition']) ? sanitize_key((string) $rule['condition']) : '';
+                if (! isset($condition_definitions[$condition])) {
+                    continue;
+                }
+
+                $value = isset($rule['value']) && is_scalar($rule['value']) ? (string) $rule['value'] : '';
+                $value_type = isset($condition_definitions[$condition]['value_type']) ? $condition_definitions[$condition]['value_type'] : '';
+                if ('post_type' === $value_type) {
+                    $value = sanitize_key($value);
+                    if (! isset($targetable_types[$value])) {
+                        continue;
+                    }
+                    if ('is_post_type_archive' === $condition && empty($targetable_types[$value]->has_archive)) {
+                        continue;
+                    }
+                } elseif ('template' === $value_type) {
+                    $templates = $this->targetable_page_templates();
+                    if ('default' !== $value && ! isset($templates[$value])) {
+                        continue;
+                    }
+                } else {
+                    $value = '';
+                }
+
+                $key = 'condition:' . $condition . ('' !== $value ? ':' . $value : '');
+                $normalized[$key] = array('type' => 'condition', 'condition' => $condition, 'value' => $value);
                 continue;
             }
             if ('taxonomy' !== $type) {
@@ -1051,6 +1169,64 @@ final class Ship_Modal
             return false !== stripos($slug, $keyword);
         }
 
+        if ('condition' === $rule['type'] && isset($rule['condition']) && is_scalar($rule['condition'])) {
+            $condition = sanitize_key((string) $rule['condition']);
+            $condition_definitions = $this->target_query_condition_definitions();
+            if (! isset($condition_definitions[$condition])) {
+                return false;
+            }
+
+            $value = isset($rule['value']) && is_scalar($rule['value']) ? (string) $rule['value'] : '';
+            if ('is_singular' === $condition) {
+                if (! is_singular()) {
+                    return false;
+                }
+                $targetable_types = $this->targetable_post_types();
+                return isset($targetable_types[get_post_type(get_queried_object_id())]);
+            }
+            if ('is_singular_post_type' === $condition) {
+                $targetable_types = $this->targetable_post_types();
+                return isset($targetable_types[$value]) && is_singular($value);
+            }
+            if ('is_page_template' === $condition) {
+                $targetable_types = $this->targetable_post_types();
+                if (! isset($targetable_types[get_post_type(get_queried_object_id())])) {
+                    return false;
+                }
+                if ('default' !== $value && ! isset($this->targetable_page_templates()[$value])) {
+                    return false;
+                }
+                return '' !== $value && is_page_template($value);
+            }
+            if ('is_front_page' === $condition) {
+                return is_front_page();
+            }
+            if ('is_home' === $condition) {
+                return is_home();
+            }
+            if ('is_archive' === $condition) {
+                return is_archive();
+            }
+            if ('is_post_type_archive' === $condition) {
+                $targetable_types = $this->targetable_post_types();
+                return isset($targetable_types[$value]) && ! empty($targetable_types[$value]->has_archive) && is_post_type_archive($value);
+            }
+            if ('is_author' === $condition) {
+                return is_author();
+            }
+            if ('is_date' === $condition) {
+                return is_date();
+            }
+            if ('is_search' === $condition) {
+                return is_search();
+            }
+            if ('is_404' === $condition) {
+                return is_404();
+            }
+
+            return false;
+        }
+
         if ('taxonomy_all' === $rule['type'] && ! empty($rule['taxonomy'])) {
             $taxonomy = $rule['taxonomy'];
             $targetable_taxonomies = $this->targetable_taxonomies();
@@ -1121,6 +1297,9 @@ final class Ship_Modal
         $taxonomy_all_help = $is_exclude
             ? '選んだタクソノミーのすべてのターム一覧と、そのタームが付いた記事を表示対象から除外します。'
             : '選んだタクソノミーのすべてのターム一覧と、そのタームが付いた記事を表示対象にします。';
+        $condition_groups = $this->target_query_condition_groups();
+        $condition_definitions = $this->target_query_condition_definitions();
+        $page_templates = $this->targetable_page_templates();
         $rule_index = 0;
         $selected_posts = $ids ? get_posts(array(
             'post__in' => $ids,
@@ -1135,7 +1314,7 @@ final class Ship_Modal
             echo '<input type="hidden" name="ship_modal_exclude_ids_present" value="1">';
         }
         echo '<div class="ship-modal-target-picker__heading"><strong>' . esc_html($title) . '</strong><span class="ship-modal-target-count" aria-live="polite"></span></div>';
-        echo '<label class="ship-modal-target-mode-label">追加する種類 <select class="ship-modal-target-add-mode"><option value="individual">ページ・記事</option><option value="post_type">投稿タイプ単位</option><option value="taxonomy"' . (empty($targetable_taxonomies) ? ' disabled' : '') . '>タクソノミー</option><option value="slug">Slugに含む文字列</option></select></label>';
+        echo '<label class="ship-modal-target-mode-label">追加する種類 <select class="ship-modal-target-add-mode"><option value="individual">ページ・記事</option><option value="post_type">投稿タイプ単位</option><option value="taxonomy"' . (empty($targetable_taxonomies) ? ' disabled' : '') . '>タクソノミー</option><option value="slug">Slugに含む文字列</option><option value="condition">ページの種類・テンプレート</option></select></label>';
 
         echo '<div class="ship-modal-target-add-controls ship-modal-target-add-controls--individual">';
         echo '<div class="ship-modal-target-search-row"><input type="search" class="widefat ship-modal-target-search" aria-label="' . esc_attr($search_label) . '" placeholder="ページ名・記事タイトルで検索（2文字以上）"><select class="ship-modal-target-post-type" aria-label="検索する種類"><option value="">すべての種類</option>';
@@ -1162,6 +1341,26 @@ final class Ship_Modal
         }
         echo '</select></label> <button type="button" class="button ship-modal-target-rule-add-taxonomy-all"' . (empty($targetable_taxonomies) ? ' disabled' : '') . '>タクソノミー全体を追加</button><p class="description">' . esc_html($taxonomy_all_help) . '</p><hr><label>個別のタームを検索 <input type="search" class="widefat ship-modal-target-term-search" placeholder="ターム名で検索（2文字以上）"></label><div class="ship-modal-target-term-results"><p class="description">ターム名を2文字以上入力してください。</p></div><p class="description">' . esc_html($taxonomy_help) . '</p></div>';
 
+        echo '<div class="ship-modal-target-add-controls ship-modal-target-add-controls--condition"><label>ページ条件 <select class="ship-modal-target-condition"> <option value="" selected disabled>条件を選択</option>';
+        foreach ($condition_groups as $group_label => $conditions) {
+            echo '<optgroup label="' . esc_attr($group_label) . '">';
+            foreach ($conditions as $condition => $definition) {
+                echo '<option value="' . esc_attr($condition) . '">' . esc_html($definition['label']) . '</option>';
+            }
+            echo '</optgroup>';
+        }
+        echo '</select></label><div class="ship-modal-target-condition-values">';
+        echo '<label class="ship-modal-target-condition-value ship-modal-target-condition-value--post-type">投稿タイプ <select class="ship-modal-target-condition-post-type"><option value="" selected disabled>投稿タイプを選択</option>';
+        foreach ($targetable_types as $target_type => $target_type_object) {
+            echo '<option value="' . esc_attr($target_type) . '" data-has-archive="' . (! empty($target_type_object->has_archive) ? '1' : '0') . '">' . esc_html($target_type_object->labels->name) . '</option>';
+        }
+        echo '</select></label>';
+        echo '<label class="ship-modal-target-condition-value ship-modal-target-condition-value--template">テンプレート <select class="ship-modal-target-condition-template"><option value="" selected disabled>テンプレートを選択</option><option value="default">' . esc_html($this->target_page_template_label('default', $page_templates)) . '</option>';
+        foreach ($page_templates as $template_file => $template) {
+            echo '<option value="' . esc_attr($template_file) . '">' . esc_html($this->target_page_template_label($template_file, $page_templates)) . '</option>';
+        }
+        echo '</select></label></div><button type="button" class="button ship-modal-target-rule-add-condition" disabled>＋追加</button><p class="description">個別ページ、テンプレート、トップ・投稿一覧、アーカイブ、検索結果、404ページを条件にできます。複数条件は「いずれかに一致」です。「すべてのアーカイブ」はタクソノミー・投稿タイプ・作成者・日付の一覧を含みます。投稿タイプ別アーカイブは一覧ページがある公開投稿タイプのみ選べます。通常の投稿一覧は「投稿一覧（is_home）」を選んでください。</p></div>';
+
         echo '<div class="ship-modal-target-picker__selected-heading"><strong>' . esc_html($selected_label) . '</strong><button type="button" class="button-link ship-modal-target-clear">すべて解除</button></div><div class="ship-modal-target-selected">';
         foreach ($selected_posts as $selected_post) {
             $selected_type = get_post_type($selected_post);
@@ -1180,6 +1379,17 @@ final class Ship_Modal
                 $taxonomy_label = isset($targetable_taxonomies[$taxonomy]) ? $targetable_taxonomies[$taxonomy]->labels->name : $taxonomy;
                 $rule_label = 'タクソノミー全体：' . $taxonomy_label;
                 echo '<span class="ship-modal-target-chip" data-target-rule-key="' . esc_attr($rule_key) . '"><input type="hidden" name="' . esc_attr($rule_field) . '[' . esc_attr($rule_index) . '][type]" value="taxonomy_all"><input type="hidden" name="' . esc_attr($rule_field) . '[' . esc_attr($rule_index) . '][taxonomy]" value="' . esc_attr($taxonomy) . '"><span>' . esc_html($rule_label) . '</span><button type="button" class="ship-modal-target-remove" aria-label="' . esc_attr($is_exclude ? '除外を解除' : '選択を解除') . '">×</button></span>';
+            } elseif ('condition' === $rule['type']) {
+                $condition = $rule['condition'];
+                $value = isset($rule['value']) ? (string) $rule['value'] : '';
+                $rule_key = 'condition:' . $condition . ('' !== $value ? ':' . $value : '');
+                $rule_label = isset($condition_definitions[$condition]) ? $condition_definitions[$condition]['label'] : $condition;
+                if ('post_type' === (isset($condition_definitions[$condition]['value_type']) ? $condition_definitions[$condition]['value_type'] : '') && isset($targetable_types[$value])) {
+                    $rule_label .= '：' . $targetable_types[$value]->labels->name;
+                } elseif ('template' === (isset($condition_definitions[$condition]['value_type']) ? $condition_definitions[$condition]['value_type'] : '')) {
+                    $rule_label .= '：' . $this->target_page_template_label($value, $page_templates);
+                }
+                echo '<span class="ship-modal-target-chip" data-target-rule-key="' . esc_attr($rule_key) . '"><input type="hidden" name="' . esc_attr($rule_field) . '[' . esc_attr($rule_index) . '][type]" value="condition"><input type="hidden" name="' . esc_attr($rule_field) . '[' . esc_attr($rule_index) . '][condition]" value="' . esc_attr($condition) . '"><input type="hidden" name="' . esc_attr($rule_field) . '[' . esc_attr($rule_index) . '][value]" value="' . esc_attr($value) . '"><span>' . esc_html($rule_label) . '</span><button type="button" class="ship-modal-target-remove" aria-label="' . esc_attr($is_exclude ? '除外を解除' : '選択を解除') . '">×</button></span>';
             } elseif ('taxonomy' === $rule['type']) {
                 $taxonomy = $rule['taxonomy'];
                 $term_id = absint($rule['term_id']);
@@ -1200,8 +1410,8 @@ final class Ship_Modal
         }
         echo '</div><p class="description">';
         echo $is_exclude
-            ? '「全ページ」を選んだ場合でも、ここに追加したページ・投稿タイプ・タクソノミー・Slug条件には表示しません。'
-            : '「指定ページのみ」で選ぶと、ここに追加したページ・投稿タイプ・タクソノミー・Slug条件だけに表示します。';
+            ? '「全ページ」を選んだ場合でも、ここに追加したページ・投稿タイプ・タクソノミー・Slug・ページ条件のいずれかに一致したページは表示しません。'
+            : '「指定ページのみ」では、ここに追加したページ・投稿タイプ・タクソノミー・Slug・ページ条件のいずれかに一致したページに表示します。';
         echo '</p></div>';
     }
 
