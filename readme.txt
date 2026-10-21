@@ -3,7 +3,7 @@ Contributors: shipinc
 Requires at least: 4.8
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.10.4
+Stable tag: 1.10.5
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -38,6 +38,9 @@ GA4の同意状態は `window.ShipModalConsent.setAnalyticsConsent(true)` / `fal
 3. 「モーダル」から内容と表示設定を登録します。
 
 == Changelog ==
+
+= 1.10.5 =
+* 閉じるボタンの「×」を対称なCSS線に置き換え、ボタンの幾何学的な中心に揃うよう修正。
 
 = 1.10.4 =
 * 遅れて読み込まれるモーダル画像が突然表示されないよう、読み込み・デコード完了後にフェード表示するよう改善。
